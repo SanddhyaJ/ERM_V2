@@ -4,21 +4,10 @@ jobs:
     runs-on: ubuntu-latest
     container: node:16
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v2
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v2
-        with:
-          node-version: '16'
-
+      - run: node --version
+      - run: npm --version
+      - uses: actions/checkout@v3
       - name: Install dependencies
         run: npm install
-
       - name: Build project
         run: npm run start
-
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v2
-        with:
-          name: build-artifacts
