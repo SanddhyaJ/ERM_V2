@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Upload, Bot, User, FileText, AlertTriangle, Flag, ChevronDown, ChevronUp, Shield, BarChart3, Sparkles, TrendingUp, Info, Download } from 'lucide-react';
+import { ArrowLeft, Upload, Bot, User, FileText, AlertTriangle, Flag, ChevronDown, ChevronUp, Shield, BarChart3, Download } from 'lucide-react';
 import { FlaggedContent, FlaggingAnalysis, PrincipleScore, PrincipleScoring, PrincipleVisualizationData } from '@/app/types';
 import ApiKeyInput from './ApiKeyInput';
 import AdditionalContext from './AdditionalContext';

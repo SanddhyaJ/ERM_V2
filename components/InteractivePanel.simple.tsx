@@ -5,7 +5,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Send, Bot, User } from 'lucide-react';
 import { InteractiveMode, FlaggedContent, FlaggingAnalysis } from '@/app/types';
-import ApiKeyInput from './ApiKeyInput';
 
 interface InteractivePanelProps {
   mode: InteractiveMode;
