@@ -1,0 +1,951 @@
+'use client';
+
+import { useState, useRef, useEffect } from 'react';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { ArrowLeft, Send, Bot, User, Workflow, AlertTriangle, Flag, ChevronDown, ChevronUp, Shield, BarChart3 } from 'lucide-react';
+import { InteractiveMode, FlaggedContent, FlaggingAnalysis } from '@/app/types';
+import ApiKeyInput from './ApiKeyInput';
+
+interface InteractivePanelProps {
+  mode: InteractiveMode;
+  onBack: () => void;
+}
+
+interface Message {
+  id: string;
+  type: 'user' | 'ai';
+  content: string;
+  timestamp: Date;
+  flags?: FlaggedContent[];
+  flaggingAnalysis?: FlaggingAnalysis;
+  severityBreakdown?: Record<string, string>;
+}
+
+const getHostname = (url: string): string => {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return url;
+  }
+};
+
+export default function InteractivePanel({ mode, onBack }: InteractivePanelProps) {
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [inputMessage, setInputMessage] = useState('');
+  const [isTyping, setIsTyping] = useState(false);
+  const [workflowFile, setWorkflowFile] = useState<File | null>(null);
+  const [apiKey, setApiKey] = useState<string>('');
+  const [baseUrl, setBaseUrl] = useState<string>('');
+  const [selectedModel, setSelectedModel] = useState<string>('');
+  const [isConnected, setIsConnected] = useState(false);
+  const [flaggedMessages, setFlaggedMessages] = useState<FlaggedContent[]>([]);
+  const [isFlaggingEnabled, setIsFlaggingEnabled] = useState(true);
+  const [expandedAnalysis, setExpandedAnalysis] = useState<Set<string>>(new Set());
+  const [expandedFlagEntries, setExpandedFlagEntries] = useState<Set<string>>(new Set());
+  const [flagsChartFilter, setFlagsChartFilter] = useState<'all' | 'user' | 'ai'>('all');
+  const [flagsCutoffIndex, setFlagsCutoffIndex] = useState<number>(-1); // -1 means no cutoff
+  const [flagTypeFilter, setFlagTypeFilter] = useState<'all' | 'ethical-concern' | 'harmful-content' | 'misinformation' | 'bias' | 'other'>('all');
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages]);
+
+  // Debug: Monitor messages with analysis
+  useEffect(() => {
+    const messagesWithAnalysis = messages.filter(msg => msg.flaggingAnalysis);
+    if (messagesWithAnalysis.length > 0) {
+      console.log('Messages with analysis:', messagesWithAnalysis.map(msg => ({
+        id: msg.id,
+        type: msg.type,
+        hasAnalysis: !!msg.flaggingAnalysis,
+        hasFlags: !!(msg.flags && msg.flags.length > 0),
+        content: msg.content.substring(0, 30) + '...'
+      })));
+    }
+  }, [messages]);
+
+  const analyzeMessage = async (message: Message, allMessages: Message[]) => {
+    if (!isFlaggingEnabled || !isConnected || mode.subMode !== 'default-chat') {
+      console.log('Skipping analysis:', { 
+        flaggingEnabled: isFlaggingEnabled, 
+        connected: isConnected, 
+        mode: mode.subMode,
+        messageType: message.type,
+        messageId: message.id
+      });
+      return;
+    }
+
+    console.log('Analyzing message:', { 
+      type: message.type, 
+      id: message.id, 
+      content: message.content.substring(0, 50) + '...' 
+    });
+
+    try {
+      // Include context around the message being analyzed
+      const contextMessages = allMessages.slice(-5).map(msg => ({
+        role: msg.type === 'user' ? 'user' : 'assistant',
+        content: msg.content
+      }));
+
+      const response = await fetch('/api/flag', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          messages: contextMessages,
+          apiKey: apiKey,
+          baseUrl: baseUrl || undefined,
+          model: selectedModel || 'gpt-3.5-turbo',
+        }),
+      });
+
+      if (response.ok) {
+        const flaggingResult = await response.json();
+        
+        console.log('Flagging result for', message.type, 'message:', {
+          messageId: message.id,
+          shouldFlag: flaggingResult.shouldFlag,
+          flagsCount: flaggingResult.flags?.length || 0,
+          severityBreakdown: flaggingResult.severityBreakdown
+        });
+        
+        const analysis: FlaggingAnalysis = {
+          id: `analysis-${Date.now()}-${Math.random()}`,
+          messageId: message.id,
+          shouldFlag: flaggingResult.shouldFlag || false,
+          flags: [],
+          reasoning: flaggingResult.reasoning || 'No analysis provided',
+          analysisTimestamp: new Date(),
+        };
+
+        let newFlags: FlaggedContent[] = [];
+        
+        if (flaggingResult.shouldFlag && flaggingResult.flags && flaggingResult.flags.length > 0) {
+          newFlags = flaggingResult.flags.map((flag: {
+            type: string;
+            severity: string;
+            reason: string;
+            flaggedText: string;
+          }) => ({
+            id: `flag-${Date.now()}-${Math.random()}`,
+            messageId: message.id,
+            type: flag.type as FlaggedContent['type'],
+            severity: flag.severity as FlaggedContent['severity'],
+            reason: flag.reason,
+            flaggedText: flag.flaggedText,
+            timestamp: new Date(),
+            resolved: false,
+          }));
+
+          analysis.flags = newFlags;
+          setFlaggedMessages(prev => [...prev, ...newFlags]);
+        }
+        
+        // Auto-expand analysis if message is flagged (but don't overwrite manual user preferences)
+        if (flaggingResult.shouldFlag && !expandedAnalysis.has(message.id)) {
+          setExpandedAnalysis(prev => new Set([...prev, message.id]));
+        }
+
+        // Update the message with the analysis
+        setMessages(prev => {
+          const updatedMessages = prev.map(msg => {
+            if (msg.id === message.id) {
+              // Preserve existing analysis if it exists (don't overwrite)
+              const existingAnalysis = msg.flaggingAnalysis;
+              
+              return {
+                ...msg,
+                flags: newFlags.length > 0 ? newFlags : undefined,
+                flaggingAnalysis: analysis || existingAnalysis,
+                severityBreakdown: flaggingResult.severityBreakdown || msg.severityBreakdown || {}
+              };
+            }
+            return msg;
+          });
+          
+          console.log('Updated message with analysis:', {
+            messageId: message.id,
+            messageType: message.type,
+            hasAnalysis: !!analysis,
+            hasFlags: newFlags.length > 0,
+            hasSeverityBreakdown: !!(flaggingResult.severityBreakdown),
+            messageFound: updatedMessages.find(m => m.id === message.id)?.flaggingAnalysis ? 'Yes' : 'No'
+          });
+          
+          return updatedMessages;
+        });
+      }
+    } catch (error) {
+      console.error('Error analyzing message:', error);
+    }
+  };
+
+  const handleApiKeySet = (key: string, url?: string, model?: string) => {
+    setApiKey(key);
+    setBaseUrl(url || '');
+    setSelectedModel(model || 'gpt-3.5-turbo');
+    setIsConnected(true);
+  };
+
+  const toggleAnalysisExpansion = (messageId: string) => {
+    console.log('Toggling analysis expansion for message:', messageId);
+    console.log('Current expanded set:', Array.from(expandedAnalysis));
+    
+    setExpandedAnalysis(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(messageId)) {
+        newSet.delete(messageId);
+        console.log('Collapsed analysis for:', messageId);
+      } else {
+        newSet.add(messageId);
+        console.log('Expanded analysis for:', messageId);
+      }
+      console.log('New expanded set:', Array.from(newSet));
+      return newSet;
+    });
+  };
+
+  const toggleFlagEntryExpansion = (flagId: string) => {
+    setExpandedFlagEntries(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(flagId)) {
+        newSet.delete(flagId);
+      } else {
+        newSet.add(flagId);
+      }
+      return newSet;
+    });
+  };
+
+  const getSeverityColor = (severity: string) => {
+    switch (severity) {
+      case 'high': return 'text-red-600 bg-red-100';
+      case 'medium': return 'text-yellow-600 bg-yellow-100';
+      case 'low': return 'text-orange-600 bg-orange-100';
+      case 'none': return 'text-green-600 bg-green-100';
+      default: return 'text-gray-600 bg-gray-100';
+    }
+  };
+
+  const formatContentType = (type: string) => {
+    return type.replace('-', ' ').replace(/\b\w/g, l => l.toUpperCase());
+  };
+
+  const getFilteredFlags = (includeTypeFilter = false) => {
+    // Get messages up to cutoff point
+    const cutoffMessages = flagsCutoffIndex >= 0 ? messages.slice(0, flagsCutoffIndex + 1) : messages;
+    const cutoffMessageIds = new Set(cutoffMessages.map(msg => msg.id));
+    
+    // Filter flags based on cutoff, message type, and optionally flag type
+    return flaggedMessages.filter(flag => {
+      // Check if flag is within cutoff range
+      if (!cutoffMessageIds.has(flag.messageId)) return false;
+      
+      // Check message type filter
+      if (flagsChartFilter !== 'all') {
+        const flaggedMessage = messages.find(msg => msg.id === flag.messageId);
+        if (flaggedMessage?.type !== flagsChartFilter) return false;
+      }
+      
+      // Check flag type filter (only when requested)
+      if (includeTypeFilter && flagTypeFilter !== 'all') {
+        if (flag.type !== flagTypeFilter) return false;
+      }
+      
+      return true;
+    });
+  };
+
+  const getChartData = () => {
+    const filteredFlags = getFilteredFlags(false); // Chart doesn't use flag type filter
+
+    // Count flags by type
+    const flagCounts = filteredFlags.reduce((acc, flag) => {
+      acc[flag.type] = (acc[flag.type] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+
+    // Define all flag types for consistent ordering
+    const allTypes = ['ethical-concern', 'harmful-content', 'misinformation', 'bias', 'other'];
+    const maxCount = Math.max(...Object.values(flagCounts), 1);
+
+    return allTypes.map(type => ({
+      type,
+      count: flagCounts[type] || 0,
+      percentage: maxCount > 0 ? ((flagCounts[type] || 0) / maxCount) * 100 : 0
+    }));
+  };
+
+  const getTypeColor = (type: string) => {
+    switch (type) {
+      case 'ethical-concern': return 'bg-red-500';
+      case 'harmful-content': return 'bg-orange-500';
+      case 'misinformation': return 'bg-yellow-500';
+      case 'bias': return 'bg-purple-500';
+      case 'other': return 'bg-gray-500';
+      default: return 'bg-gray-400';
+    }
+  };
+
+  const renderSeverityBreakdown = (severityBreakdown: Record<string, string>) => {
+    const contentTypes = ['ethical-concern', 'harmful-content', 'misinformation', 'bias', 'other'];
+    
+    return (
+      <div className="mt-3 border-t border-gray-200 pt-3">
+        <div className="flex items-center mb-2">
+          <BarChart3 className="w-3 h-3 mr-1 text-blue-600" />
+          <span className="text-xs font-medium text-gray-700">Severity Breakdown</span>
+        </div>
+        <div className="grid grid-cols-1 gap-2">
+          {contentTypes.map(type => {
+            const severity = severityBreakdown[type] || 'none';
+            return (
+              <div key={type} className="flex items-center justify-between text-xs">
+                <span className="text-gray-600 capitalize">
+                  {formatContentType(type)}
+                </span>
+                <span className={`px-2 py-1 rounded text-xs font-medium ${getSeverityColor(severity)}`}>
+                  {severity}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
+  const handleSendMessage = async () => {
+    if (!inputMessage.trim()) return;
+    
+    if (!isConnected) {
+      alert('Please connect your OpenAI API key first');
+      return;
+    }
+
+    const userMessage: Message = {
+      id: `msg-${Date.now()}`,
+      type: 'user',
+      content: inputMessage,
+      timestamp: new Date()
+    };
+
+    // Add user message to conversation
+    const messagesWithUser = [...messages, userMessage];
+    setMessages(messagesWithUser);
+    setInputMessage('');
+    
+    // Analyze user message immediately (before AI response)
+    setTimeout(() => {
+      analyzeMessage(userMessage, messagesWithUser);
+    }, 100);
+    
+    setIsTyping(true);
+
+    try {
+      // Prepare conversation history for OpenAI
+      const conversationHistory = messagesWithUser.map(msg => ({
+        role: msg.type === 'user' ? 'user' : 'assistant',
+        content: msg.content
+      }));
+
+      // Add system message for custom workflow if applicable
+      const systemMessage = mode.subMode === 'custom-workflow' && workflowFile
+        ? { role: 'system', content: `You are operating with a custom workflow from file: ${workflowFile.name}. Respond according to the workflow specifications.` }
+        : { role: 'system', content: 'You are a helpful AI assistant.' };
+
+      const messages_for_api = [systemMessage, ...conversationHistory];
+
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          messages: messages_for_api,
+          apiKey: apiKey,
+          baseUrl: baseUrl || undefined,
+          model: selectedModel || 'gpt-3.5-turbo',
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to get AI response');
+      }
+
+      const data = await response.json();
+      
+      const aiResponse: Message = {
+        id: `msg-${Date.now()}-ai`,
+        type: 'ai',
+        content: data.message,
+        timestamp: new Date()
+      };
+      
+      // Add AI response to conversation
+      const finalMessages = [...messagesWithUser, aiResponse];
+      setMessages(finalMessages);
+      
+      // Analyze AI message separately (after it's added)
+      setTimeout(() => {
+        analyzeMessage(aiResponse, finalMessages);
+      }, 100);
+      
+    } catch (error: unknown) {
+      console.error('Error sending message:', error);
+      
+      const errorMessage: Message = {
+        id: `msg-${Date.now()}-error`,
+        type: 'ai',
+        content: `Error: ${error instanceof Error ? error.message : 'Unknown error'}. Please check your API key and try again.`,
+        timestamp: new Date()
+      };
+      
+      setMessages(prev => [...prev, errorMessage]);
+    } finally {
+      setIsTyping(false);
+    }
+  };
+
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSendMessage();
+    }
+  };
+
+  const handleWorkflowUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      setWorkflowFile(e.target.files[0]);
+    }
+  };
+
+  return (
+    <div className="h-screen bg-gradient-to-br from-green-50 to-emerald-100 flex flex-col">
+      <div className="flex-shrink-0 p-6">
+        {/* Header */}
+        <div className="flex items-center mb-8">
+          <Button 
+            variant="ghost" 
+            onClick={onBack}
+            className="mr-4"
+          >
+            <ArrowLeft className="w-4 h-4 mr-2" />
+            Back to Dashboard
+          </Button>
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">Interactive Mode</h1>
+            <p className="text-gray-600">
+              {mode.subMode === 'default-chat' 
+                ? 'Chat with a zero-shot LLM' 
+                : 'Chat using your custom workflow'}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex-1 px-6 pb-6 min-h-0 flex flex-col">
+        <div className="max-w-full mx-auto h-full flex flex-col">
+          
+          {/* Top Section: Configuration Panel + Chat Interface */}
+          <div className="flex-1 min-h-0 mb-6">
+            <div className="grid grid-cols-4 gap-6 h-full">
+              
+              {/* Left Panel - AI Configuration */}
+              <div className="col-span-1 space-y-6 overflow-y-auto">
+                {/* API Key Input */}
+                <ApiKeyInput 
+                  onApiKeySet={handleApiKeySet}
+                  isConnected={isConnected}
+                  currentBaseUrl={baseUrl}
+                  currentModel={selectedModel}
+                />
+                
+                {/* Mode Info */}
+                <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center text-lg">
+                    {mode.subMode === 'default-chat' ? (
+                      <Bot className="w-5 h-5 mr-2" />
+                    ) : (
+                      <Workflow className="w-5 h-5 mr-2" />
+                    )}
+                    {mode.subMode === 'default-chat' ? 'Default Chat' : 'Custom Workflow'}
+                  </CardTitle>
+                  <CardDescription>
+                    {mode.subMode === 'default-chat' 
+                      ? baseUrl ? `Chat using custom endpoint: ${getHostname(baseUrl)}` : 'Chat with OpenAI GPT-3.5-turbo'
+                      : baseUrl ? `Using custom endpoint with workflow: ${getHostname(baseUrl)}` : 'Using custom workflow with OpenAI'}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {mode.subMode === 'custom-workflow' && (
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium mb-2">
+                          Upload Workflow File
+                        </label>
+                        <input
+                          type="file"
+                          accept=".json,.yaml,.yml"
+                          onChange={handleWorkflowUpload}
+                          className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                        />
+                      </div>
+                      
+                      {workflowFile && (
+                        <div className="p-3 bg-green-50 rounded-lg">
+                          <p className="text-sm font-medium text-green-800">
+                            Workflow loaded: {workflowFile.name}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  
+                  <div className="mt-6 space-y-2">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-gray-600">Messages</span>
+                      <span className="font-medium">{messages.length}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-gray-600">Status</span>
+                      <span className={`font-medium ${isConnected ? 'text-green-600' : 'text-orange-600'}`}>
+                        {isConnected ? 'Connected' : 'Not Connected'}
+                      </span>
+                    </div>
+                    {isConnected && baseUrl && (
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-gray-600">Endpoint</span>
+                        <span className="font-medium text-blue-600 text-xs">
+                          {getHostname(baseUrl)}
+                        </span>
+                      </div>
+                    )}
+                    {mode.subMode === 'default-chat' && (
+                      <>
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-gray-600">Flags</span>
+                          <span className={`font-medium ${flaggedMessages.length > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                            {flaggedMessages.length}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-gray-600">Flagging</span>
+                          <button
+                            onClick={() => setIsFlaggingEnabled(!isFlaggingEnabled)}
+                            className={`text-xs px-2 py-1 rounded ${
+                              isFlaggingEnabled 
+                                ? 'bg-green-100 text-green-700' 
+                                : 'bg-gray-100 text-gray-700'
+                            }`}
+                          >
+                            {isFlaggingEnabled ? 'Enabled' : 'Disabled'}
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Chat Interface - Full Width */}
+            <div className="col-span-3 flex flex-col min-h-0">
+              <Card className="flex-1 flex flex-col min-h-0">
+                <CardHeader className="flex-shrink-0">
+                  <CardTitle className="flex items-center">
+                    <Bot className="w-5 h-5 mr-2" />
+                    Chat Interface
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="flex-1 flex flex-col min-h-0 p-6">
+                  {/* Messages Container - Fixed height with scroll */}
+                  <div className="flex-1 overflow-y-auto space-y-4 mb-4 pr-2">
+                  {messages.length === 0 ? (
+                    <div className="text-center py-8 text-gray-500">
+                      <Bot className="w-12 h-12 mx-auto mb-4 text-gray-300" />
+                      {isConnected ? (
+                        <p>Ready to chat! Start a conversation by typing a message below</p>
+                      ) : (
+                        <p>Connect your OpenAI API key in the sidebar to start chatting</p>
+                      )}
+                    </div>
+                  ) : (
+                    messages.map((message) => (
+                      <div key={message.id} className="space-y-2">
+                        <div
+                          className={`flex ${
+                            message.type === 'user' ? 'justify-end' : 'justify-start'
+                          }`}
+                        >
+                          <div
+                            className={`max-w-xs lg:max-w-md px-4 py-2 rounded-lg ${
+                              message.type === 'user'
+                                ? 'bg-blue-600 text-white'
+                                : 'bg-gray-200 text-gray-800'
+                            } ${message.flags && message.flags.length > 0 ? 'border-2 border-red-500' : ''}`}
+                          >
+                            <div className="flex items-center mb-1">
+                              {message.type === 'user' ? (
+                                <User className="w-4 h-4 mr-2" />
+                              ) : (
+                                <Bot className="w-4 h-4 mr-2" />
+                              )}
+                              <span className="text-xs opacity-75">
+                                {message.timestamp.toLocaleTimeString()}
+                              </span>
+                              {message.flags && message.flags.length > 0 && (
+                                <AlertTriangle className="w-4 h-4 ml-2 text-red-500" />
+                              )}
+                            </div>
+                            <p className="text-sm">{message.content}</p>
+                          </div>
+                        </div>
+                        
+                        {/* Show flags if present */}
+                        {message.flags && message.flags.length > 0 && (
+                          <div className={`flex ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}>
+                            <div className="max-w-xs lg:max-w-md">
+                              {message.flags.map((flag) => (
+                                <div
+                                  key={flag.id}
+                                  className={`px-3 py-2 rounded-lg text-sm border-l-4 ${
+                                    flag.severity === 'high' ? 'bg-red-50 border-red-500 text-red-800' :
+                                    flag.severity === 'medium' ? 'bg-yellow-50 border-yellow-500 text-yellow-800' :
+                                    'bg-orange-50 border-orange-500 text-orange-800'
+                                  }`}
+                                >
+                                  <div className="flex items-center mb-1">
+                                    <Flag className="w-3 h-3 mr-1" />
+                                    <span className="font-medium text-xs uppercase">
+                                      {flag.type.replace('-', ' ')} - {flag.severity}
+                                    </span>
+                                  </div>
+                                  <p className="text-xs">{flag.reason}</p>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Flagging Analysis - Always show if analysis exists */}
+                        {message.flaggingAnalysis && (
+                          <div className={`flex ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}>
+                            <div className="max-w-xs lg:max-w-md">
+                              <div className="bg-gray-50 border border-gray-200 rounded-lg text-sm">
+                                <button
+                                  onClick={() => {
+                                    console.log('Flagging analysis clicked for message:', {
+                                      messageId: message.id,
+                                      messageType: message.type,
+                                      hasAnalysis: !!message.flaggingAnalysis,
+                                      isExpanded: expandedAnalysis.has(message.id),
+                                      analysisData: message.flaggingAnalysis
+                                    });
+                                    toggleAnalysisExpansion(message.id);
+                                  }}
+                                  className="w-full px-3 py-2 flex items-center justify-between text-left hover:bg-gray-100 rounded-lg"
+                                >
+                                  <div className="flex items-center">
+                                    <Shield className="w-3 h-3 mr-2 text-blue-600" />
+                                    <span className="text-xs font-medium text-gray-700">
+                                      Flagging Analysis
+                                      {message.flaggingAnalysis.shouldFlag && (
+                                        <span className="ml-1 text-red-600 font-bold">⚠</span>
+                                      )}
+                                    </span>
+                                  </div>
+                                  {expandedAnalysis.has(message.id) ? (
+                                    <ChevronUp className="w-3 h-3 text-gray-500" />
+                                  ) : (
+                                    <ChevronDown className="w-3 h-3 text-gray-500" />
+                                  )}
+                                </button>
+                                
+                                {expandedAnalysis.has(message.id) && (
+                                  <div className="px-3 pb-3 border-t border-gray-200">
+                                    <div className="mt-2">
+                                      <p className="text-xs text-gray-600 mb-1">
+                                        <strong>Analysis:</strong>
+                                      </p>
+                                      <p className="text-xs text-gray-700 leading-relaxed">
+                                        {message.flaggingAnalysis.reasoning}
+                                      </p>
+                                      
+                                      {/* Severity Breakdown */}
+                                      {message.severityBreakdown && (
+                                        renderSeverityBreakdown(message.severityBreakdown)
+                                      )}
+                                      
+                                      <p className="text-xs text-gray-500 mt-3">
+                                        Analyzed at {message.flaggingAnalysis.analysisTimestamp.toLocaleTimeString()}
+                                      </p>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))
+                  )}
+                  
+                  {isTyping && (
+                    <div className="flex justify-start">
+                      <div className="bg-gray-200 text-gray-800 max-w-xs lg:max-w-md px-4 py-2 rounded-lg">
+                        <div className="flex items-center">
+                          <Bot className="w-4 h-4 mr-2" />
+                          <div className="flex space-x-1">
+                            <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce"></div>
+                            <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+                            <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  
+                  <div ref={messagesEndRef} />
+                </div>
+
+                {/* Input Area - Fixed at bottom */}
+                <div className="flex-shrink-0 flex space-x-2">
+                  <textarea
+                    value={inputMessage}
+                    onChange={(e) => setInputMessage(e.target.value)}
+                    onKeyPress={handleKeyPress}
+                    placeholder={isConnected ? "Type your message..." : "Connect API key to start chatting..."}
+                    className="flex-1 p-2 border rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+                    rows={1}
+                    disabled={!isConnected}
+                  />
+                  <Button
+                    onClick={handleSendMessage}
+                    disabled={!inputMessage.trim() || isTyping || !isConnected}
+                    className="px-4"
+                  >
+                    <Send className="w-4 h-4" />
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+        
+        {/* Bottom Section: Flags Log Panel - Horizontal Container */}
+        <div className="flex-shrink-0">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center">
+                <Flag className="w-5 h-5 mr-2" />
+                Flags Log
+                <span className="ml-2 text-sm font-normal text-gray-500">
+                  ({getFilteredFlags(false).length} of {flaggedMessages.length} total)
+                </span>
+              </CardTitle>
+              <CardDescription>
+                Consolidated view of all flagged content throughout the conversation
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="p-4">
+              {flaggedMessages.length === 0 ? (
+                <div className="text-center py-6 text-gray-500">
+                  <Shield className="w-8 h-8 mx-auto mb-2 text-gray-300" />
+                  <p className="text-sm">No flags detected in this conversation</p>
+                </div>
+              ) : (
+                <div className="grid lg:grid-cols-2 gap-6">
+                  
+                  {/* Left Side: Chart and Controls */}
+                  <div className="space-y-6">
+                    {/* Controls */}
+                    <div className="bg-gray-50 p-4 rounded-lg">
+                      <div className="flex items-center justify-between mb-4">
+                        <h4 className="text-sm font-medium text-gray-700 flex items-center">
+                          <BarChart3 className="w-4 h-4 mr-2" />
+                          Flag Distribution
+                        </h4>
+                        <select
+                          value={flagsChartFilter}
+                          onChange={(e) => setFlagsChartFilter(e.target.value as 'all' | 'user' | 'ai')}
+                          className="text-xs px-2 py-1 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                          <option value="all">All Messages</option>
+                          <option value="user">User Messages</option>
+                          <option value="ai">AI Messages</option>
+                        </select>
+                      </div>
+                      
+                      {/* Conversation Cutoff Slider */}
+                      {messages.length > 0 && (
+                        <div className="mb-4">
+                          <label className="text-xs font-medium text-gray-600 mb-2 block">
+                            Conversation Cutoff: {flagsCutoffIndex >= 0 ? `Up to message ${flagsCutoffIndex + 1}` : 'All messages'}
+                          </label>
+                          <input
+                            type="range"
+                            min={-1}
+                            max={messages.length - 1}
+                            value={flagsCutoffIndex}
+                            onChange={(e) => setFlagsCutoffIndex(parseInt(e.target.value))}
+                            className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer slider"
+                          />
+                          <div className="flex justify-between text-xs text-gray-500 mt-1">
+                            <span>All</span>
+                            <span>Message {messages.length}</span>
+                          </div>
+                        </div>
+                      )}
+                      
+                      <div className="space-y-2">
+                        {getChartData().map((item) => (
+                          <div key={item.type} className="flex items-center">
+                            <div className="w-24 text-xs text-gray-600 truncate">
+                              {formatContentType(item.type)}
+                            </div>
+                            <div className="flex-1 mx-3">
+                              <div className="w-full bg-gray-200 rounded-full h-4 relative">
+                                <div
+                                  className={`h-4 rounded-full transition-all duration-300 ${getTypeColor(item.type)}`}
+                                  style={{ width: `${item.percentage}%` }}
+                                />
+                              </div>
+                            </div>
+                            <div className="w-8 text-right text-xs text-gray-700 font-medium">
+                              {item.count}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      
+                      <div className="mt-3 text-xs text-gray-500">
+                        Showing {flagsChartFilter === 'all' ? 'all' : flagsChartFilter} message flags
+                        {flagsCutoffIndex >= 0 && ` up to message ${flagsCutoffIndex + 1}`}
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* Right Side: Flags List */}
+                  <div>
+                    <div className="flex items-center justify-between mb-3">
+                      <h4 className="text-sm font-medium text-gray-700">
+                        Recent Flags ({getFilteredFlags(true).length})
+                      </h4>
+                      <select
+                        value={flagTypeFilter}
+                        onChange={(e) => setFlagTypeFilter(e.target.value as typeof flagTypeFilter)}
+                        className="text-xs px-2 py-1 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        <option value="all">All Types</option>
+                        <option value="ethical-concern">Ethical Concerns</option>
+                        <option value="harmful-content">Harmful Content</option>
+                        <option value="misinformation">Misinformation</option>
+                        <option value="bias">Bias</option>
+                        <option value="other">Other</option>
+                      </select>
+                    </div>
+                    <div className="space-y-3 max-h-64 overflow-y-auto">
+                      {getFilteredFlags(true).map((flag) => {
+                        const flaggedMessage = messages.find(msg => msg.id === flag.messageId);
+                        const isExpanded = expandedFlagEntries.has(flag.id);
+                        return (
+                          <div
+                            key={flag.id}
+                            className={`p-3 rounded-lg border-l-4 cursor-pointer transition-all hover:shadow-md ${
+                              flag.severity === 'high' ? 'bg-red-50 border-red-500 hover:bg-red-100' :
+                              flag.severity === 'medium' ? 'bg-yellow-50 border-yellow-500 hover:bg-yellow-100' :
+                              'bg-orange-50 border-orange-500 hover:bg-orange-100'
+                            }`}
+                            onClick={() => toggleFlagEntryExpansion(flag.id)}
+                          >
+                            <div className="flex items-center justify-between mb-2">
+                              <div className="flex items-center">
+                                <span className={`text-xs px-2 py-1 rounded font-medium ${getSeverityColor(flag.severity)}`}>
+                                  {flag.severity.toUpperCase()}
+                                </span>
+                                <span className="ml-2 text-xs text-gray-600 capitalize">
+                                  {formatContentType(flag.type)}
+                                </span>
+                                <span className="ml-2 text-xs text-gray-500">
+                                  {flaggedMessage?.type === 'user' ? 'User' : 'AI'}
+                                </span>
+                              </div>
+                              <div className="flex items-center">
+                                <span className="text-xs text-gray-500 mr-2">
+                                  {flag.timestamp.toLocaleTimeString()}
+                                </span>
+                                {isExpanded ? (
+                                  <ChevronUp className="w-4 h-4 text-gray-500" />
+                                ) : (
+                                  <ChevronDown className="w-4 h-4 text-gray-500" />
+                                )}
+                              </div>
+                            </div>
+                            <p className="text-sm text-gray-700 mb-2">{flag.reason}</p>
+                            {flag.flaggedText && (
+                              <div className="text-xs text-gray-600 bg-gray-100 p-2 rounded mb-2">
+                                <strong>Flagged text:</strong> "{flag.flaggedText}"
+                              </div>
+                            )}
+                            
+                            {/* Expanded Reasoning Section */}
+                            {isExpanded && flaggedMessage?.flaggingAnalysis && (
+                              <div className="mt-3 pt-3 border-t border-gray-300">
+                                <div className="flex items-center mb-2">
+                                  <Shield className="w-4 h-4 mr-2 text-blue-600" />
+                                  <span className="text-sm font-medium text-gray-700">Detailed Analysis</span>
+                                </div>
+                                <div className="bg-white p-3 rounded border text-sm text-gray-700 leading-relaxed">
+                                  {flaggedMessage.flaggingAnalysis.reasoning}
+                                </div>
+                                {flaggedMessage.severityBreakdown && Object.keys(flaggedMessage.severityBreakdown).length > 0 && (
+                                  <div className="mt-3">
+                                    <div className="flex items-center mb-2">
+                                      <BarChart3 className="w-4 h-4 mr-2 text-blue-600" />
+                                      <span className="text-sm font-medium text-gray-700">Severity Breakdown</span>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-2">
+                                      {Object.entries(flaggedMessage.severityBreakdown).map(([type, severity]) => (
+                                        <div key={type} className="flex items-center justify-between text-xs bg-white p-2 rounded border">
+                                          <span className="text-gray-600 capitalize">
+                                            {formatContentType(type)}
+                                          </span>
+                                          <span className={`px-2 py-1 rounded text-xs font-medium ${getSeverityColor(severity)}`}>
+                                            {severity}
+                                          </span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+                                <div className="mt-3 text-xs text-gray-500">
+                                  Analyzed at {flaggedMessage.flaggingAnalysis.analysisTimestamp.toLocaleTimeString()}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
+}
