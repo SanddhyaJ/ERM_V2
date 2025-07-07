@@ -355,7 +355,7 @@ Do not include any markdown formatting, code blocks, or additional text. Only re
         // Try to extract meaningful information from the raw text
         const analysisText = flaggingResponse.toLowerCase();
         let hasFlag = false;
-        let detectedFlags = [];
+        const detectedFlags = [];
         
         // Look for key indicators in the response
         if (analysisText.includes('concerning') || analysisText.includes('flag') || 
