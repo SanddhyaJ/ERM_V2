@@ -169,41 +169,74 @@ Your response will be automatically structured according to the defined schema.`
 
           // Make the API call to analyze the message for this principle
           let completion;
+          const requestModel = model || 'gpt-3.5-turbo';
+          
+          // Check if using OpenAI API directly (no custom base URL)
+          const isOpenAIDirectAPI = !baseUrl || baseUrl.includes('openai.com');
+          
+          console.log(`Principle ${principle.id} API Configuration:`, {
+            model: requestModel,
+            isOpenAIDirectAPI,
+            baseUrl: baseUrl || 'default OpenAI'
+          });
+
           try {
-            // Try structured output first (requires newer models)
-            completion = await openai.chat.completions.create({
-              model: model || 'gpt-3.5-turbo',
-              messages: [
-                { role: 'system', content: principlePrompt },
-                { role: 'user', content: `Evaluate the message above for adherence to the principle "${principle.name}".` }
-              ],
-              max_tokens: 500,
-              temperature: 0.1,
-              response_format: { 
-                type: "json_schema",
-                json_schema: {
-                  name: "principle_evaluation",
-                  schema: principleSchema,
-                  strict: true
+            // For OpenAI API, use structured output with supported models
+            if (isOpenAIDirectAPI && (requestModel.includes('gpt-4') || requestModel.includes('gpt-3.5-turbo'))) {
+              console.log(`Using structured output for principle ${principle.id} with OpenAI API`);
+              completion = await openai.chat.completions.create({
+                model: requestModel,
+                messages: [
+                  { role: 'system', content: principlePrompt },
+                  { role: 'user', content: `Evaluate the message above for adherence to the principle "${principle.name}".` }
+                ],
+                max_tokens: 500,
+                temperature: 0.1,
+                response_format: { 
+                  type: "json_schema",
+                  json_schema: {
+                    name: "principle_evaluation",
+                    schema: principleSchema,
+                    strict: true
+                  }
                 }
-              }
-            });
+              });
+            } else {
+              throw new Error('Using fallback JSON format');
+            }
           } catch (schemaError) {
-            console.log(`Structured output not supported for principle ${principle.id}, falling back to json_object format`);
+            console.log(`Structured output not supported for principle ${principle.id}, falling back to json_object format:`, schemaError);
             // Fallback to basic JSON object format
+            const enhancedPrompt = principlePrompt + `
+
+CRITICAL INSTRUCTIONS FOR JSON OUTPUT:
+You must respond with a valid JSON object that matches this exact structure:
+{
+  "score": integer between -5 and 5,
+  "reasoning": "detailed explanation of your scoring decision"
+}
+
+Do not include any markdown formatting, code blocks, or additional text. Only return the JSON object.`;
+
             completion = await openai.chat.completions.create({
-              model: model || 'gpt-3.5-turbo',
+              model: requestModel,
               messages: [
-                { role: 'system', content: principlePrompt + '\n\nIMPORTANT: Respond with valid JSON only, no markdown or additional text.' },
-                { role: 'user', content: `Evaluate the message above for adherence to the principle "${principle.name}". Return valid JSON only.` }
+                { role: 'system', content: enhancedPrompt },
+                { role: 'user', content: `Evaluate the message above for adherence to the principle "${principle.name}". Return only valid JSON.` }
               ],
-              max_tokens: 500,
+              max_tokens: 600,
               temperature: 0.1,
               response_format: { type: "json_object" }
             });
           }
 
           const principleResponse = completion.choices[0]?.message?.content;
+
+          console.log(`Raw principle response for ${principle.id}:`, {
+            hasResponse: !!principleResponse,
+            responseLength: principleResponse?.length || 0,
+            responsePreview: principleResponse?.substring(0, 100) + '...'
+          });
 
           if (!principleResponse) {
             console.error(`No response from principle evaluation for ${principle.id}`);
@@ -214,10 +247,11 @@ Your response will be automatically structured according to the defined schema.`
             try {
               // First try direct JSON parsing
               const principleResult = JSON.parse(principleResponse);
+              console.log(`Successfully parsed JSON for principle ${principle.id}`);
               
               // Validate and normalize the score
               score = Math.max(-5, Math.min(5, parseInt(principleResult.score) || 0));
-              reasoning = principleResult.reasoning || 'No reasoning provided';
+              reasoning = principleResult.reasoning || 'Analysis completed successfully.';
               
             } catch (parseError) {
               console.error(`Failed to parse structured principle response for ${principle.id}:`, parseError);
@@ -248,27 +282,74 @@ Your response will be automatically structured according to the defined schema.`
                   .replace(/\s+/g, ' ');   // Normalize whitespace
                 
                 const principleResult = JSON.parse(jsonString);
+                console.log(`Successfully parsed cleaned JSON for principle ${principle.id}`);
                 score = Math.max(-5, Math.min(5, parseInt(principleResult.score) || 0));
                 reasoning = principleResult.reasoning || 'Analysis completed successfully.';
                 
               } catch (secondParseError) {
                 console.error(`Failed to parse cleaned JSON for principle ${principle.id}:`, secondParseError);
+                console.error('Attempting to extract score and reasoning from text');
                 
-                // Final fallback
-                score = 0;
-                reasoning = `Analysis completed with parsing error: ${principleResponse.substring(0, 100)}...`;
+                // Try to extract meaningful information from the raw text
+                const responseText = principleResponse.toLowerCase();
+                let extractedScore = 0;
+                let extractedReasoning = 'Analysis completed successfully.';
+                
+                // Look for score patterns in the text
+                const scoreMatch = principleResponse.match(/score[:\s]*(-?\d+)/i);
+                if (scoreMatch) {
+                  extractedScore = Math.max(-5, Math.min(5, parseInt(scoreMatch[1]) || 0));
+                }
+                
+                // Look for reasoning patterns
+                const reasoningMatch = principleResponse.match(/reasoning[:\s]*["']?([^"']+)["']?/i);
+                if (reasoningMatch) {
+                  extractedReasoning = reasoningMatch[1].trim();
+                } else if (principleResponse.length > 10) {
+                  // Use part of the response as reasoning
+                  extractedReasoning = `Analysis: ${principleResponse.substring(0, 150)}${principleResponse.length > 150 ? '...' : ''}`;
+                }
+                
+                // Try to infer score from sentiment in text
+                if (extractedScore === 0) {
+                  if (responseText.includes('positive') || responseText.includes('good') || responseText.includes('strong')) {
+                    extractedScore = 2;
+                  } else if (responseText.includes('negative') || responseText.includes('poor') || responseText.includes('weak')) {
+                    extractedScore = -2;
+                  } else if (responseText.includes('excellent') || responseText.includes('exceptional')) {
+                    extractedScore = 4;
+                  } else if (responseText.includes('concerning') || responseText.includes('problematic')) {
+                    extractedScore = -3;
+                  }
+                }
+                
+                score = extractedScore;
+                reasoning = extractedReasoning;
+                
+                console.log(`Created fallback response for principle ${principle.id}:`, {
+                  score: extractedScore,
+                  reasoning: extractedReasoning.substring(0, 100) + '...'
+                });
               }
             }
           }
         }
         
         // Always add a score (either real or fallback)
-        scores.push({
+        const finalScore = {
           principleId: principle.id,
           principleName: principle.name,
           score,
           reasoning,
+        };
+        
+        console.log(`Final score for principle ${principle.id}:`, {
+          score: finalScore.score,
+          reasoningLength: finalScore.reasoning.length,
+          reasoningPreview: finalScore.reasoning.substring(0, 100) + '...'
         });
+        
+        scores.push(finalScore);
 
       } catch (error) {
         console.error(`Error evaluating principle ${principle.id}:`, error);

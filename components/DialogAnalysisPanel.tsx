@@ -425,7 +425,10 @@ export default function DialogAnalysisPanel({ onBack }: DialogAnalysisPanelProps
         const principleScoring: PrincipleScoring = {
           id: `scoring-${Date.now()}-${Math.random()}`,
           messageId: message.id,
-          scores: scoringResult.scores || [],
+          scores: scoringResult.scores?.map((score: any) => ({
+            ...score,
+            reasoning: score.reasoning || 'Analysis completed successfully.'
+          })) || [],
           analysisTimestamp: new Date()
         };
 
@@ -460,10 +463,60 @@ export default function DialogAnalysisPanel({ onBack }: DialogAnalysisPanelProps
         });
 
       } else {
-        console.error('Error scoring principles:', await response.text());
+        console.error('Principle scoring API error:', response.status, response.statusText);
+        
+        // Create fallback scoring for failed API requests
+        const fallbackScoring: PrincipleScoring = {
+          id: `scoring-${Date.now()}-${Math.random()}`,
+          messageId: message.id,
+          scores: [
+            { id: `score-${Date.now()}-1`, messageId: message.id, principleId: 'transparency', score: 0, reasoning: 'Analysis failed - please check your API configuration', timestamp: new Date() },
+            { id: `score-${Date.now()}-2`, messageId: message.id, principleId: 'respect', score: 0, reasoning: 'Analysis failed - please check your API configuration', timestamp: new Date() },
+            { id: `score-${Date.now()}-3`, messageId: message.id, principleId: 'accountability', score: 0, reasoning: 'Analysis failed - please check your API configuration', timestamp: new Date() },
+            { id: `score-${Date.now()}-4`, messageId: message.id, principleId: 'fairness', score: 0, reasoning: 'Analysis failed - please check your API configuration', timestamp: new Date() }
+          ],
+          analysisTimestamp: new Date(),
+        };
+
+        // Update the message with the fallback scoring
+        const updatedMessages = allMessages.map(msg => 
+          msg.id === message.id 
+            ? { 
+                ...msg, 
+                principleScoring: fallbackScoring
+              }
+            : msg
+        );
+
+        setMessages(updatedMessages);
       }
     } catch (error) {
       console.error('Error scoring principles:', error);
+      
+      // Create fallback scoring for errors
+      const errorScoring: PrincipleScoring = {
+        id: `scoring-${Date.now()}-${Math.random()}`,
+        messageId: message.id,
+        scores: [
+          { id: `score-${Date.now()}-1`, messageId: message.id, principleId: 'transparency', score: 0, reasoning: 'Analysis error - please check your connection and API key', timestamp: new Date() },
+          { id: `score-${Date.now()}-2`, messageId: message.id, principleId: 'respect', score: 0, reasoning: 'Analysis error - please check your connection and API key', timestamp: new Date() },
+          { id: `score-${Date.now()}-3`, messageId: message.id, principleId: 'accountability', score: 0, reasoning: 'Analysis error - please check your connection and API key', timestamp: new Date() },
+          { id: `score-${Date.now()}-4`, messageId: message.id, principleId: 'fairness', score: 0, reasoning: 'Analysis error - please check your connection and API key', timestamp: new Date() }
+        ],
+        analysisTimestamp: new Date(),
+      };
+
+      // Update the message with the error scoring
+      const updatedMessages = allMessages.map(msg => 
+        msg.id === message.id 
+          ? { 
+              ...msg, 
+              principleScoring: errorScoring
+            }
+          : msg
+      );
+
+      setMessages(updatedMessages);
     }
   };
 

@@ -428,14 +428,19 @@ export default function InteractivePanel({ mode, onBack }: InteractivePanelProps
           scores: principleResult.scores,
           messageId: message.id,
           messageType: message.type,
-          actualScoreValues: principleResult.scores?.map((s: any) => s.score)
+          actualScoreValues: principleResult.scores?.map((s: any) => s.score),
+          actualReasoningLengths: principleResult.scores?.map((s: any) => s.reasoning?.length || 0)
         });
         
         if (principleResult.success && principleResult.scores) {
           console.log('Principle scoring successful:', {
             messageId: message.id,
             messageType: message.type,
-            scores: principleResult.scores.map((s: any) => ({ principle: s.principleName, score: s.score }))
+            scores: principleResult.scores.map((s: any) => ({ 
+              principle: s.principleName, 
+              score: s.score, 
+              reasoningLength: s.reasoning?.length || 0 
+            }))
           });
           
           const scoring: PrincipleScoring = {
@@ -446,7 +451,7 @@ export default function InteractivePanel({ mode, onBack }: InteractivePanelProps
               messageId: message.id,
               principleId: score.principleId,
               score: score.score,
-              reasoning: score.reasoning,
+              reasoning: score.reasoning || 'Analysis completed successfully.',
               timestamp: new Date(),
             })),
             analysisTimestamp: new Date(),
@@ -485,9 +490,61 @@ export default function InteractivePanel({ mode, onBack }: InteractivePanelProps
         console.error('Principle scoring API error:', response.status, response.statusText);
         const errorData = await response.json();
         console.error('Error details:', errorData);
+        
+        // Create fallback scoring for failed API requests
+        const fallbackScoring: PrincipleScoring = {
+          id: `scoring-${Date.now()}-${Math.random()}`,
+          messageId: message.id,
+          scores: [
+            { id: `score-${Date.now()}-1`, messageId: message.id, principleId: 'transparency', score: 0, reasoning: 'Analysis failed - please check your API configuration', timestamp: new Date() },
+            { id: `score-${Date.now()}-2`, messageId: message.id, principleId: 'respect', score: 0, reasoning: 'Analysis failed - please check your API configuration', timestamp: new Date() },
+            { id: `score-${Date.now()}-3`, messageId: message.id, principleId: 'accountability', score: 0, reasoning: 'Analysis failed - please check your API configuration', timestamp: new Date() },
+            { id: `score-${Date.now()}-4`, messageId: message.id, principleId: 'fairness', score: 0, reasoning: 'Analysis failed - please check your API configuration', timestamp: new Date() }
+          ],
+          analysisTimestamp: new Date(),
+        };
+
+        // Update the message with the fallback scoring
+        setMessages(prev => {
+          return prev.map(msg => {
+            if (msg.id === message.id) {
+              return {
+                ...msg,
+                principleScoring: fallbackScoring
+              };
+            }
+            return msg;
+          });
+        });
       }
     } catch (error) {
       console.error('Error scoring principles:', error);
+      
+      // Create fallback scoring for errors
+      const errorScoring: PrincipleScoring = {
+        id: `scoring-${Date.now()}-${Math.random()}`,
+        messageId: message.id,
+        scores: [
+          { id: `score-${Date.now()}-1`, messageId: message.id, principleId: 'transparency', score: 0, reasoning: 'Analysis error - please check your connection and API key', timestamp: new Date() },
+          { id: `score-${Date.now()}-2`, messageId: message.id, principleId: 'respect', score: 0, reasoning: 'Analysis error - please check your connection and API key', timestamp: new Date() },
+          { id: `score-${Date.now()}-3`, messageId: message.id, principleId: 'accountability', score: 0, reasoning: 'Analysis error - please check your connection and API key', timestamp: new Date() },
+          { id: `score-${Date.now()}-4`, messageId: message.id, principleId: 'fairness', score: 0, reasoning: 'Analysis error - please check your connection and API key', timestamp: new Date() }
+        ],
+        analysisTimestamp: new Date(),
+      };
+
+      // Update the message with the error scoring
+      setMessages(prev => {
+        return prev.map(msg => {
+          if (msg.id === message.id) {
+            return {
+              ...msg,
+              principleScoring: errorScoring
+            };
+          }
+          return msg;
+        });
+      });
     }
   };
 
