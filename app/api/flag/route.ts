@@ -174,35 +174,77 @@ If you identify concerning content, include it in the flags array with appropria
 
     // Make the API call to analyze the conversation
     let completion;
+    const requestModel = model || 'gpt-3.5-turbo';
+    
+    // Check if using OpenAI API directly (no custom base URL)
+    const isOpenAIDirectAPI = !baseUrl || baseUrl.includes('openai.com');
+    
+    console.log('API Configuration:', {
+      model: requestModel,
+      isOpenAIDirectAPI,
+      baseUrl: baseUrl || 'default OpenAI'
+    });
+
     try {
-      // Try structured output first (requires newer models)
-      completion = await openai.chat.completions.create({
-        model: model || 'gpt-3.5-turbo',
-        messages: [
-          { role: 'system', content: flaggingPrompt },
-          { role: 'user', content: 'Analyze the conversation above for concerning content.' }
-        ],
-        max_tokens: 1000,
-        temperature: 0.1,
-        response_format: { 
-          type: "json_schema",
-          json_schema: {
-            name: "flagging_analysis",
-            schema: flaggingSchema,
-            strict: true
+      // For OpenAI API, use structured output with supported models
+      if (isOpenAIDirectAPI && (requestModel.includes('gpt-4') || requestModel.includes('gpt-3.5-turbo'))) {
+        console.log('Using structured output for OpenAI API');
+        completion = await openai.chat.completions.create({
+          model: requestModel,
+          messages: [
+            { role: 'system', content: flaggingPrompt },
+            { role: 'user', content: 'Analyze the conversation above for concerning content.' }
+          ],
+          max_tokens: 1000,
+          temperature: 0.1,
+          response_format: { 
+            type: "json_schema",
+            json_schema: {
+              name: "flagging_analysis",
+              schema: flaggingSchema,
+              strict: true
+            }
           }
-        }
-      });
+        });
+      } else {
+        throw new Error('Using fallback JSON format');
+      }
     } catch (schemaError) {
-      console.log('Structured output not supported, falling back to json_object format');
+      console.log('Structured output not supported or failed, falling back to json_object format:', schemaError);
       // Fallback to basic JSON object format
+      const enhancedPrompt = flaggingPrompt + `
+
+CRITICAL INSTRUCTIONS FOR JSON OUTPUT:
+You must respond with a valid JSON object that matches this exact structure:
+{
+  "shouldFlag": boolean,
+  "reasoning": "string explaining your analysis",
+  "severityBreakdown": {
+    "ethical-concern": "none|low|medium|high",
+    "harmful-content": "none|low|medium|high", 
+    "misinformation": "none|low|medium|high",
+    "bias": "none|low|medium|high",
+    "other": "none|low|medium|high"
+  },
+  "flags": [
+    {
+      "type": "ethical-concern|harmful-content|misinformation|bias|other",
+      "severity": "low|medium|high",
+      "reason": "explanation of the concern",
+      "flaggedText": "specific text that triggered the flag"
+    }
+  ]
+}
+
+Do not include any markdown formatting, code blocks, or additional text. Only return the JSON object.`;
+
       completion = await openai.chat.completions.create({
-        model: model || 'gpt-3.5-turbo',
+        model: requestModel,
         messages: [
-          { role: 'system', content: flaggingPrompt + '\n\nIMPORTANT: Respond with valid JSON only, no markdown or additional text.' },
-          { role: 'user', content: 'Analyze the conversation above for concerning content. Return valid JSON only.' }
+          { role: 'system', content: enhancedPrompt },
+          { role: 'user', content: 'Analyze the conversation above for concerning content. Return only valid JSON.' }
         ],
-        max_tokens: 1000,
+        max_tokens: 1500,
         temperature: 0.1,
         response_format: { type: "json_object" }
       });
@@ -210,7 +252,14 @@ If you identify concerning content, include it in the flags array with appropria
 
     const flaggingResponse = completion.choices[0]?.message?.content;
 
+    console.log('Raw flagging response:', {
+      hasResponse: !!flaggingResponse,
+      responseLength: flaggingResponse?.length || 0,
+      responsePreview: flaggingResponse?.substring(0, 200) + '...'
+    });
+
     if (!flaggingResponse) {
+      console.error('No response from flagging system');
       return NextResponse.json(
         { error: 'No response from flagging system' },
         { status: 500 }
@@ -222,10 +271,30 @@ If you identify concerning content, include it in the flags array with appropria
     try {
       // First try direct JSON parsing
       flaggingResult = JSON.parse(flaggingResponse);
+      console.log('Successfully parsed JSON response');
       
       // Validate essential fields
       if (typeof flaggingResult.shouldFlag !== 'boolean') {
         flaggingResult.shouldFlag = false;
+      }
+      
+      // Ensure all required fields exist
+      if (!flaggingResult.reasoning) {
+        flaggingResult.reasoning = "Analysis completed successfully.";
+      }
+      
+      if (!flaggingResult.severityBreakdown) {
+        flaggingResult.severityBreakdown = {
+          "ethical-concern": "none",
+          "harmful-content": "none",
+          "misinformation": "none",
+          "bias": "none",
+          "other": "none"
+        };
+      }
+      
+      if (!flaggingResult.flags || !Array.isArray(flaggingResult.flags)) {
+        flaggingResult.flags = [];
       }
       
     } catch (parseError) {
@@ -257,6 +326,7 @@ If you identify concerning content, include it in the flags array with appropria
           .replace(/\s+/g, ' ');   // Normalize whitespace
         
         flaggingResult = JSON.parse(jsonString);
+        console.log('Successfully parsed cleaned JSON response');
         
         // Validate and add missing fields
         if (typeof flaggingResult.shouldFlag !== 'boolean') {
@@ -274,28 +344,62 @@ If you identify concerning content, include it in the flags array with appropria
             "other": "none"
           };
         }
-        if (!flaggingResult.flags) {
+        if (!flaggingResult.flags || !Array.isArray(flaggingResult.flags)) {
           flaggingResult.flags = [];
         }
         
       } catch (secondParseError) {
         console.error('Failed to parse cleaned JSON:', secondParseError);
+        console.error('Attempting to create response from analysis text');
         
-        // Final fallback
+        // Try to extract meaningful information from the raw text
+        const analysisText = flaggingResponse.toLowerCase();
+        let hasFlag = false;
+        let detectedFlags = [];
+        
+        // Look for key indicators in the response
+        if (analysisText.includes('concerning') || analysisText.includes('flag') || 
+            analysisText.includes('harmful') || analysisText.includes('inappropriate')) {
+          hasFlag = true;
+          detectedFlags.push({
+            type: "other",
+            severity: "medium",
+            reason: "Content analysis detected potential concerns",
+            flaggedText: flaggingResponse.substring(0, 100) + "..."
+          });
+        }
+        
+        // Final fallback with more detailed reasoning
         flaggingResult = { 
-          shouldFlag: false, 
-          flags: [],
-          reasoning: "Analysis completed successfully. No concerning content detected.",
+          shouldFlag: hasFlag, 
+          flags: detectedFlags,
+          reasoning: hasFlag ? 
+            `Analysis detected potential concerns in the content. Raw analysis: ${flaggingResponse.substring(0, 200)}...` :
+            "Analysis completed successfully. No concerning content detected.",
           severityBreakdown: {
-            "ethical-concern": "none",
+            "ethical-concern": hasFlag ? "medium" : "none",
             "harmful-content": "none",
             "misinformation": "none",
             "bias": "none",
-            "other": "none"
+            "other": hasFlag ? "medium" : "none"
           }
         };
+        
+        console.log('Created fallback response:', {
+          shouldFlag: flaggingResult.shouldFlag,
+          hasFlags: flaggingResult.flags.length > 0,
+          reasoning: flaggingResult.reasoning.substring(0, 100) + '...'
+        });
       }
     }
+
+    console.log('Final flagging result:', {
+      shouldFlag: flaggingResult.shouldFlag,
+      hasFlags: flaggingResult.flags?.length > 0,
+      flagCount: flaggingResult.flags?.length || 0,
+      reasoningLength: flaggingResult.reasoning?.length || 0,
+      hasSeverityBreakdown: !!flaggingResult.severityBreakdown
+    });
 
     return NextResponse.json(flaggingResult);
 

@@ -215,12 +215,19 @@ export default function InteractivePanel({ mode, onBack }: InteractivePanelProps
       if (response.ok) {
         const flaggingResult = await response.json();
         
+        console.log('Flagging result received:', {
+          shouldFlag: flaggingResult.shouldFlag,
+          hasFlags: flaggingResult.flags?.length > 0,
+          reasoningLength: flaggingResult.reasoning?.length || 0,
+          hasSeverityBreakdown: !!flaggingResult.severityBreakdown
+        });
+        
         const analysis: FlaggingAnalysis = {
           id: `analysis-${Date.now()}-${Math.random()}`,
           messageId: message.id,
           shouldFlag: flaggingResult.shouldFlag || false,
           flags: [],
-          reasoning: flaggingResult.reasoning || 'No analysis provided',
+          reasoning: flaggingResult.reasoning || 'Analysis completed successfully.',
           analysisTimestamp: new Date(),
         };
 
@@ -290,9 +297,71 @@ export default function InteractivePanel({ mode, onBack }: InteractivePanelProps
             return msg;
           });
         });
+      } else {
+        console.error('Flagging API request failed:', response.status, response.statusText);
+        
+        // Create a fallback analysis for failed requests
+        const fallbackAnalysis: FlaggingAnalysis = {
+          id: `analysis-${Date.now()}-${Math.random()}`,
+          messageId: message.id,
+          shouldFlag: false,
+          flags: [],
+          reasoning: 'Analysis failed - please check your API configuration',
+          analysisTimestamp: new Date(),
+        };
+
+        // Update the message with the fallback analysis
+        setMessages(prev => {
+          return prev.map(msg => {
+            if (msg.id === message.id) {
+              return {
+                ...msg,
+                flaggingAnalysis: fallbackAnalysis,
+                severityBreakdown: {
+                  "ethical-concern": "none",
+                  "harmful-content": "none",
+                  "misinformation": "none",
+                  "bias": "none",
+                  "other": "none"
+                }
+              };
+            }
+            return msg;
+          });
+        });
       }
     } catch (error) {
       console.error('Error analyzing message:', error);
+      
+      // Create a fallback analysis for errors
+      const errorAnalysis: FlaggingAnalysis = {
+        id: `analysis-${Date.now()}-${Math.random()}`,
+        messageId: message.id,
+        shouldFlag: false,
+        flags: [],
+        reasoning: 'Analysis error - please check your connection and API key',
+        analysisTimestamp: new Date(),
+      };
+
+      // Update the message with the error analysis
+      setMessages(prev => {
+        return prev.map(msg => {
+          if (msg.id === message.id) {
+            return {
+              ...msg,
+              flaggingAnalysis: errorAnalysis,
+              severityBreakdown: {
+                "ethical-concern": "none",
+                "harmful-content": "none",
+                "misinformation": "none",
+                "bias": "none",
+                "other": "none"
+              }
+            };
+          }
+          return msg;
+        });
+      });
     }
   };
 
