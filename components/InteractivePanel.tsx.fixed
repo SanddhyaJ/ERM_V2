@@ -45,7 +45,7 @@ export default function InteractivePanel({ mode, onBack }: InteractivePanelProps
   const [expandedFlagEntries, setExpandedFlagEntries] = useState<Set<string>>(new Set());
   const [flagsChartFilter, setFlagsChartFilter] = useState<'all' | 'user' | 'ai'>('all');
   const [flagsCutoffIndex, setFlagsCutoffIndex] = useState<number>(-1); // -1 means no cutoff
-  const [flagTypeFilter, setFlagTypeFilter] = useState<'all' | 'ethical-concern' | 'harmful-content' | 'misinformation' | 'bias' | 'other'>('all');
+  const [flagTypeFilter, setFlagTypeFilter] = useState<'all' | 'emotional-distress' | 'emotional-dysregulation-escalation' | 'persistence-of-distress' | 'social-withdrawal-lack-of-support' | 'over-reliance-ai' | 'reduced-coping-capacity' | 'hopelessness-reduced-future-orientation' | 'human-intervention-recommended' | 'other'>('all');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -104,7 +104,7 @@ export default function InteractivePanel({ mode, onBack }: InteractivePanelProps
           messages: contextMessages,
           apiKey: apiKey,
           baseUrl: baseUrl || undefined,
-          model: selectedModel || 'gpt-3.5-turbo',
+          model: selectedModel || 'gpt-4o',
         }),
       });
 
@@ -192,7 +192,7 @@ export default function InteractivePanel({ mode, onBack }: InteractivePanelProps
   const handleApiKeySet = (key: string, url?: string, model?: string) => {
     setApiKey(key);
     setBaseUrl(url || '');
-    setSelectedModel(model || 'gpt-3.5-turbo');
+  setSelectedModel(model || 'gpt-4o');
     setIsConnected(true);
   };
 
@@ -275,7 +275,7 @@ export default function InteractivePanel({ mode, onBack }: InteractivePanelProps
     }, {} as Record<string, number>);
 
     // Define all flag types for consistent ordering
-    const allTypes = ['ethical-concern', 'harmful-content', 'misinformation', 'bias', 'other'];
+  const allTypes = ['emotional-distress','emotional-dysregulation-escalation','persistence-of-distress','social-withdrawal-lack-of-support','over-reliance-ai','reduced-coping-capacity','hopelessness-reduced-future-orientation','human-intervention-recommended','other'];
     const maxCount = Math.max(...Object.values(flagCounts), 1);
 
     return allTypes.map(type => ({
@@ -287,17 +287,17 @@ export default function InteractivePanel({ mode, onBack }: InteractivePanelProps
 
   const getTypeColor = (type: string) => {
     switch (type) {
-      case 'ethical-concern': return 'bg-red-500';
-      case 'harmful-content': return 'bg-orange-500';
-      case 'misinformation': return 'bg-yellow-500';
-      case 'bias': return 'bg-purple-500';
+  case 'emotional-distress': return 'bg-red-500';
+  case 'emotional-dysregulation-escalation': return 'bg-orange-500';
+  case 'persistence-of-distress': return 'bg-yellow-500';
+  case 'social-withdrawal-lack-of-support': return 'bg-purple-500';
       case 'other': return 'bg-gray-500';
       default: return 'bg-gray-400';
     }
   };
 
   const renderSeverityBreakdown = (severityBreakdown: Record<string, string>) => {
-    const contentTypes = ['ethical-concern', 'harmful-content', 'misinformation', 'bias', 'other'];
+  const contentTypes = ['emotional-distress','emotional-dysregulation-escalation','persistence-of-distress','social-withdrawal-lack-of-support','over-reliance-ai','reduced-coping-capacity','hopelessness-reduced-future-orientation','human-intervention-recommended','other'];
     
     return (
       <div className="mt-3 border-t border-gray-200 pt-3">
@@ -374,7 +374,7 @@ export default function InteractivePanel({ mode, onBack }: InteractivePanelProps
           messages: messages_for_api,
           apiKey: apiKey,
           baseUrl: baseUrl || undefined,
-          model: selectedModel || 'gpt-3.5-turbo',
+          model: selectedModel || 'gpt-4o',
         }),
       });
 
@@ -484,7 +484,7 @@ export default function InteractivePanel({ mode, onBack }: InteractivePanelProps
                   </CardTitle>
                   <CardDescription>
                     {mode.subMode === 'default-chat' 
-                      ? baseUrl ? `Chat using custom endpoint: ${getHostname(baseUrl)}` : 'Chat with OpenAI GPT-3.5-turbo'
+                      ? baseUrl ? `Chat using custom endpoint: ${getHostname(baseUrl)}` : 'Chat with OpenAI GPT-4o'
                       : baseUrl ? `Using custom endpoint with workflow: ${getHostname(baseUrl)}` : 'Using custom workflow with OpenAI'}
                   </CardDescription>
                 </CardHeader>
@@ -849,10 +849,14 @@ export default function InteractivePanel({ mode, onBack }: InteractivePanelProps
                         className="text-xs px-2 py-1 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
                       >
                         <option value="all">All Types</option>
-                        <option value="ethical-concern">Ethical Concerns</option>
-                        <option value="harmful-content">Harmful Content</option>
-                        <option value="misinformation">Misinformation</option>
-                        <option value="bias">Bias</option>
+                        <option value="emotional-distress">Emotional Distress</option>
+                        <option value="emotional-dysregulation-escalation">Emotional Dysregulation / Escalation</option>
+                        <option value="persistence-of-distress">Persistence of Distress</option>
+                        <option value="social-withdrawal-lack-of-support">Social Withdrawal / Lack of Support</option>
+                        <option value="over-reliance-ai">Over-Reliance on AI</option>
+                        <option value="reduced-coping-capacity">Reduced Coping Capacity</option>
+                        <option value="hopelessness-reduced-future-orientation">Hopelessness / Reduced Future Orientation</option>
+                        <option value="human-intervention-recommended">Human Intervention Recommended</option>
                         <option value="other">Other</option>
                       </select>
                     </div>

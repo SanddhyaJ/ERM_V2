@@ -1,0 +1,95 @@
+
+> mvp@0.1.0 dev
+> next dev --turbopack
+
+   ▲ Next.js 15.3.5 (Turbopack)
+   - Local:        http://localhost:3000
+   - Network:      http://192.168.178.116:3000
+
+ ✓ Starting...
+ ✓ Ready in 2.1s
+ ✓ Compiled /api/flag in 394ms
+ POST /api/flag 400 in 472ms
+ POST /api/flag 400 in 12ms
+ POST /api/flag 400 in 10ms
+Flagging API called with: {
+  messageCount: 1,
+  currentMessage: "I feel so overwhelmed and exhausted. I don't think I can keep going....",
+  currentRole: 'user',
+  analyzing: 'user message + full conversation context',
+  contextLength: 74,
+  hasAdditionalContext: false
+}
+API Configuration: { model: 'gpt-4o', isOpenAIDirectAPI: true, baseUrl: 'default OpenAI' }
+Using structured output for OpenAI API
+Structured output not supported or failed, falling back to json_object format: Error: 401 Incorrect API key provided: INVALID. You can find your API key at https://platform.openai.com/account/api-keys.
+    at APIError.generate (../src/core/error.ts:76:13)
+    at OpenAI.makeStatusError (src/client.ts:425:27)
+    at OpenAI.makeRequest (src/client.ts:646:23)
+    at async POST (app/api/flag/route.ts:194:21)
+  192 |           if (isOpenAIDirectAPI && (requestModel.includes('gpt-4') || requestModel.includes('gpt-4o') || requestModel.includes('gpt-3.5-turbo'))) {
+  193 |         console.log('Using structured output for OpenAI API');
+> 194 |         completion = await openai.chat.completions.create({
+      |                     ^
+  195 |           model: requestModel,
+  196 |           messages: [
+  197 |             { role: 'system', content: flaggingPrompt }, {
+  status: 401,
+  headers: Headers {
+    date: 'Mon, 09 Feb 2026 20:03:53 GMT',
+    'content-type': 'application/json; charset=utf-8',
+    'content-length': '257',
+    connection: 'keep-alive',
+    vary: 'Origin',
+    'x-request-id': 'req_01911771fe794acca298f4b3c20e7cca',
+    'x-openai-proxy-wasm': 'v0.1',
+    server: 'cloudflare',
+    'cf-cache-status': 'DYNAMIC',
+    'set-cookie': '__cf_bm=XaVyKdW1XIRMOVih29_m7N1W4rSMlOXNQMeGlZ4Bglw-1770667432.9362383-1.0.1.1-qm7FQsSketnl7fNKAyjCHKweqbdWmDNuQDp0PorVCbEK8WnaVrC0dt070UdyxX70EwY1L1LSttxqN4zr0pRe33FKZ7uhU3kcK9A75ecRUejdkIQhio2YUAe9PG7kFgUr; HttpOnly; Secure; Path=/; Domain=api.openai.com; Expires=Mon, 09 Feb 2026 20:33:53 GMT, _cfuvid=Y.3RvApKf.YYk5Y2sGghyr9hXFmEKLw2TvfUhZaLUw8-1770667432.9362383-1.0.1.1-B2v.W8ekOogX2QMm10XoUqD4EgPEJnSknjYZqPhYUA0; HttpOnly; SameSite=None; Secure; Path=/; Domain=api.openai.com',
+    'strict-transport-security': 'max-age=31536000; includeSubDomains; preload',
+    'x-content-type-options': 'nosniff',
+    'cf-ray': '9cb5f8ffda0be508-TXL',
+    'alt-svc': 'h3=":443"; ma=86400'
+  },
+  requestID: 'req_01911771fe794acca298f4b3c20e7cca',
+  error: [Object],
+  code: 'invalid_api_key',
+  param: null,
+  type: 'invalid_request_error'
+}
+Flagging API Error: Error: 401 Incorrect API key provided: INVALID. You can find your API key at https://platform.openai.com/account/api-keys.
+    at APIError.generate (../src/core/error.ts:76:13)
+    at OpenAI.makeStatusError (src/client.ts:425:27)
+    at OpenAI.makeRequest (src/client.ts:646:23)
+    at async POST (app/api/flag/route.ts:246:19)
+  244 | Do not include any markdown formatting, code blocks, or additional text. Only return the JSON object.`;
+  245 |
+> 246 |       completion = await openai.chat.completions.create({
+      |                   ^
+  247 |         model: requestModel,
+  248 |         messages: [
+  249 |           { role: 'system', content: enhancedPrompt }, {
+  status: 401,
+  headers: Headers {
+    date: 'Mon, 09 Feb 2026 20:03:53 GMT',
+    'content-type': 'application/json; charset=utf-8',
+    'content-length': '257',
+    connection: 'keep-alive',
+    vary: 'Origin',
+    'x-request-id': 'req_a2beb78d15cb49619b55fc23a81c7b5a',
+    'x-openai-proxy-wasm': 'v0.1',
+    server: 'cloudflare',
+    'cf-cache-status': 'DYNAMIC',
+    'set-cookie': '__cf_bm=WZV8ypfp_GLolZ7jrXRH8TFnSm5lZrM.Xmn8AIY_nvA-1770667433.2229314-1.0.1.1-eplIL493LoGEmY7lSeCQGyvl4YCbzLMKr7_JgDxILiCVTTTCVAHduMDQh.B6WRHfK14_FpbeqaCrO0bNY2hgskLXfRoBolE0XD52Q7OR6blztniKG1MwrTaPDUcXjHSK; HttpOnly; Secure; Path=/; Domain=api.openai.com; Expires=Mon, 09 Feb 2026 20:33:53 GMT, _cfuvid=I4_wuT7SOl.PaSZu.VBgbWYL1G0oR6ILmwBWjcZqloA-1770667433.2229314-1.0.1.1-77aoOxsMFYyO0MGBG6RrdQU77Qi5e9m_8CXC2ER0QQM; HttpOnly; SameSite=None; Secure; Path=/; Domain=api.openai.com',
+    'strict-transport-security': 'max-age=31536000; includeSubDomains; preload',
+    'x-content-type-options': 'nosniff',
+    'cf-ray': '9cb5f901ac54339b-TXL',
+    'alt-svc': 'h3=":443"; ma=86400'
+  },
+  requestID: 'req_a2beb78d15cb49619b55fc23a81c7b5a',
+  error: [Object],
+  code: 'invalid_api_key',
+  param: null,
+  type: 'invalid_request_error'
+}
+ POST /api/flag 401 in 535ms

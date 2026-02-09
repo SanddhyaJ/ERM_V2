@@ -45,14 +45,16 @@ export async function POST(request: NextRequest) {
     });
 
     // Flagging system prompt
-    const flaggingPrompt = `You are an AI ethics monitoring system. Your job is to analyze conversations and flag any concerning content related to:
+    const flaggingPrompt = `You are an AI ethics monitoring system for mental health conversations. Your job is to analyze conversations and flag any concerning content related to:
 
-1. ETHICAL CONCERNS: Harmful advice, dangerous instructions, illegal activities
-2. HARMFUL CONTENT: Hate speech, violence, self-harm, harassment
-3. MISINFORMATION: False information, conspiracy theories, medical misinformation
-4. BIAS: Discriminatory content, stereotypes, unfair treatment
-5. NONE: No concerning content found
-6. OTHER: Any other concerning reasoning patterns
+1. EMOTIONAL DISTRESS: Expressions of notable negative emotions such as sadness, stress, exhaustion, or feeling overwhelmed. Do not flag for brief or clearly resolved frustration.
+2. EMOTIONAL DYSREGULATION / ESCALATION: Signs of difficulty regulating emotions, increasing anger, irritability, anxiety, or loss of control across messages.
+3. PERSISTENCE OF DISTRESS: Recurrent or unresolved mental-health related concerns across multiple turns, indicating ongoing distress rather than a single momentary expression.
+4. SOCIAL WITHDRAWAL / LACK OF SUPPORT: Indications of limited social support, withdrawal from others, or lack of trusted people to talk to; consider persistence across recent messages.
+5. OVER-RELIANCE ON THE AI FOR EMOTIONAL SUPPORT: Preference for the AI over human relationships for emotional support, or avoidance of human connection in favor of the system.
+6. REDUCED COPING CAPACITY: Expressions of difficulty sustaining current circumstances, feeling close to a breaking point, or inability to cope (without requiring explicit mention of harm).
+7. HOPELESSNESS / REDUCED FUTURE ORIENTATION: Expressions of pessimism about the future, lack of purpose, or belief that improvement is unlikely; consider persistence across turns.
+8. HUMAN INTERVENTION RECOMMENDED: Flag only if the conversation shows multiple, sustained mental-health concern signals that suggest the user may be struggling to cope without external support. Base this assessment on patterns across several messages, not on a single statement or moment of distress. Do not flag for mild emotional distress, temporary frustration, or isolated expressions of stress. Require at least one higher-severity concern (such as reduced coping capacity, hopelessness, or escalating emotional dysregulation) to be present and persistent. This flag indicates a recommendation for human review, not urgency, diagnosis, or emergency.
 
 FULL CONVERSATION HISTORY:
 ${conversationContext}
@@ -110,33 +112,33 @@ If you identify concerning content, include it in the flags array with appropria
         severityBreakdown: {
           type: "object",
           properties: {
-            "ethical-concern": {
+            "emotional-distress": {
               type: "string",
               enum: ["none", "low", "medium", "high"],
-              description: "Severity level for ethical concerns"
+              description: "Severity level for emotional distress"
             },
-            "harmful-content": {
+            "emotional-dysregulation-escalation": {
               type: "string",
               enum: ["none", "low", "medium", "high"],
-              description: "Severity level for harmful content"
+              description: "Severity level for emotional dysregulation / escalation"
             },
-            "misinformation": {
+            "persistence-of-distress": {
               type: "string",
               enum: ["none", "low", "medium", "high"],
-              description: "Severity level for misinformation"
+              description: "Severity level for persistent distress"
             },
-            "bias": {
+            "social-withdrawal-lack-of-support": {
               type: "string",
               enum: ["none", "low", "medium", "high"],
-              description: "Severity level for bias"
+              description: "Severity level for social withdrawal / lack of support"
             },
-            "other": {
+            "over-reliance-ai": {
               type: "string",
               enum: ["none", "low", "medium", "high"],
-              description: "Severity level for other concerns"
+              description: "Severity level for over-reliance on the AI for emotional support"
             }
           },
-          required: ["ethical-concern", "harmful-content", "misinformation", "bias", "other"],
+              required: ["emotional-distress","emotional-dysregulation-escalation","persistence-of-distress","social-withdrawal-lack-of-support","over-reliance-ai"],
           additionalProperties: false
         },
         flags: {
@@ -146,7 +148,7 @@ If you identify concerning content, include it in the flags array with appropria
             properties: {
               type: {
                 type: "string",
-                enum: ["ethical-concern", "harmful-content", "misinformation", "bias", "none", "other"],
+                enum: ["emotional-distress","emotional-dysregulation-escalation","persistence-of-distress","social-withdrawal-lack-of-support","over-reliance-ai","reduced-coping-capacity","hopelessness-reduced-future-orientation","human-intervention-recommended","none","other"],
                 description: "Type of flagged content"
               },
               severity: {
@@ -174,7 +176,7 @@ If you identify concerning content, include it in the flags array with appropria
 
     // Make the API call to analyze the conversation
     let completion;
-    const requestModel = model || 'gpt-3.5-turbo';
+          const requestModel = model || 'gpt-4o';
     
     // Check if using OpenAI API directly (no custom base URL)
     const isOpenAIDirectAPI = !baseUrl || baseUrl.includes('openai.com');
@@ -187,7 +189,7 @@ If you identify concerning content, include it in the flags array with appropria
 
     try {
       // For OpenAI API, use structured output with supported models
-      if (isOpenAIDirectAPI && (requestModel.includes('gpt-4') || requestModel.includes('gpt-3.5-turbo'))) {
+          if (isOpenAIDirectAPI && (requestModel.includes('gpt-4') || requestModel.includes('gpt-4o') || requestModel.includes('gpt-3.5-turbo'))) {
         console.log('Using structured output for OpenAI API');
         completion = await openai.chat.completions.create({
           model: requestModel,
@@ -220,15 +222,18 @@ You must respond with a valid JSON object that matches this exact structure:
   "shouldFlag": boolean,
   "reasoning": "string explaining your analysis",
   "severityBreakdown": {
-    "ethical-concern": "none|low|medium|high",
-    "harmful-content": "none|low|medium|high", 
-    "misinformation": "none|low|medium|high",
-    "bias": "none|low|medium|high",
-    "other": "none|low|medium|high"
+    "emotional-distress": "none|low|medium|high",
+    "emotional-dysregulation-escalation": "none|low|medium|high",
+    "persistence-of-distress": "none|low|medium|high",
+    "social-withdrawal-lack-of-support": "none|low|medium|high",
+    "over-reliance-ai": "none|low|medium|high",
+    "reduced-coping-capacity": "none|low|medium|high",
+    "hopelessness-reduced-future-orientation": "none|low|medium|high",
+    "human-intervention-recommended": "none|low|medium|high"
   },
   "flags": [
     {
-      "type": "ethical-concern|harmful-content|misinformation|bias|other",
+      "type": "emotional-distress|emotional-dysregulation-escalation|persistence-of-distress|social-withdrawal-lack-of-support|over-reliance-ai|reduced-coping-capacity|hopelessness-reduced-future-orientation|human-intervention-recommended|other",
       "severity": "low|medium|high",
       "reason": "explanation of the concern",
       "flaggedText": "specific text that triggered the flag"
@@ -285,11 +290,14 @@ Do not include any markdown formatting, code blocks, or additional text. Only re
       
       if (!flaggingResult.severityBreakdown) {
         flaggingResult.severityBreakdown = {
-          "ethical-concern": "none",
-          "harmful-content": "none",
-          "misinformation": "none",
-          "bias": "none",
-          "other": "none"
+          "emotional-distress": "none",
+          "emotional-dysregulation-escalation": "none",
+          "persistence-of-distress": "none",
+          "social-withdrawal-lack-of-support": "none",
+          "over-reliance-ai": "none",
+          "reduced-coping-capacity": "none",
+          "hopelessness-reduced-future-orientation": "none",
+          "human-intervention-recommended": "none"
         };
       }
       
@@ -337,11 +345,14 @@ Do not include any markdown formatting, code blocks, or additional text. Only re
         }
         if (!flaggingResult.severityBreakdown) {
           flaggingResult.severityBreakdown = {
-            "ethical-concern": "none",
-            "harmful-content": "none",
-            "misinformation": "none",
-            "bias": "none",
-            "other": "none"
+            "emotional-distress": "none",
+            "emotional-dysregulation-escalation": "none",
+            "persistence-of-distress": "none",
+            "social-withdrawal-lack-of-support": "none",
+            "over-reliance-ai": "none",
+            "reduced-coping-capacity": "none",
+            "hopelessness-reduced-future-orientation": "none",
+            "human-intervention-recommended": "none"
           };
         }
         if (!flaggingResult.flags || !Array.isArray(flaggingResult.flags)) {
@@ -359,12 +370,12 @@ Do not include any markdown formatting, code blocks, or additional text. Only re
         
         // Look for key indicators in the response
         if (analysisText.includes('concerning') || analysisText.includes('flag') || 
-            analysisText.includes('harmful') || analysisText.includes('inappropriate')) {
+            analysisText.includes('harmful') || analysisText.includes('inappropriate') || analysisText.includes('sad') || analysisText.includes('stress') || analysisText.includes('overwhelmed')) {
           hasFlag = true;
           detectedFlags.push({
-            type: "other",
+            type: "emotional-distress",
             severity: "medium",
-            reason: "Content analysis detected potential concerns",
+            reason: "Detected language indicating emotional distress",
             flaggedText: flaggingResponse.substring(0, 100) + "..."
           });
         }
@@ -377,11 +388,14 @@ Do not include any markdown formatting, code blocks, or additional text. Only re
             `Analysis detected potential concerns in the content. Raw analysis: ${flaggingResponse.substring(0, 200)}...` :
             "Analysis completed successfully. No concerning content detected.",
           severityBreakdown: {
-            "ethical-concern": hasFlag ? "medium" : "none",
-            "harmful-content": "none",
-            "misinformation": "none",
-            "bias": "none",
-            "other": hasFlag ? "medium" : "none"
+            "emotional-distress": hasFlag ? "medium" : "none",
+            "emotional-dysregulation-escalation": "none",
+            "persistence-of-distress": "none",
+            "social-withdrawal-lack-of-support": "none",
+            "over-reliance-ai": "none",
+            "reduced-coping-capacity": "none",
+            "hopelessness-reduced-future-orientation": "none",
+            "human-intervention-recommended": hasFlag ? "medium" : "none"
           }
         };
         
@@ -391,6 +405,72 @@ Do not include any markdown formatting, code blocks, or additional text. Only re
           reasoning: flaggingResult.reasoning.substring(0, 100) + '...'
         });
       }
+    }
+
+    // Normalize severities to avoid mismatch between model output and frontend checks
+    const allowedFlagSeverities = new Set(['low', 'medium', 'high']);
+    const allowedBreakdownSeverities = new Set(['none', 'low', 'medium', 'high']);
+
+    if (flaggingResult) {
+      // Normalize flags array
+      if (Array.isArray(flaggingResult.flags)) {
+        flaggingResult.flags = flaggingResult.flags.map((f: any) => {
+          const severityRaw = (f?.severity ?? '').toString();
+          const severity = severityRaw.trim().toLowerCase();
+          return {
+            type: f.type,
+            severity: allowedFlagSeverities.has(severity) ? severity : 'low',
+            reason: f.reason,
+            flaggedText: f.flaggedText
+          };
+        });
+      }
+
+      // Normalize severityBreakdown object
+      if (flaggingResult.severityBreakdown && typeof flaggingResult.severityBreakdown === 'object') {
+        const normalized: Record<string, string> = {};
+        for (const [k, v] of Object.entries(flaggingResult.severityBreakdown)) {
+          const raw = (v ?? '').toString().trim().toLowerCase();
+          normalized[k] = allowedBreakdownSeverities.has(raw) ? raw : 'none';
+        }
+        flaggingResult.severityBreakdown = normalized;
+      }
+    }
+
+    // Produce a concise, helpful reasoning summary for the frontend while preserving
+    // the full model reasoning for drill-down. This keeps UI text short but allows
+    // the full analysis to be inspected if needed.
+    try {
+      const fullReasoning = (flaggingResult?.reasoning ?? '').toString();
+      let shortReasoning = fullReasoning;
+
+      const flagList = Array.isArray(flaggingResult?.flags) ? flaggingResult.flags.map((f: any) => {
+        const t = (f?.type ?? '').toString().replace(/-/g, ' ');
+        const s = (f?.severity ?? '').toString();
+        return `${t}${s ? ` (${s})` : ''}`;
+      }).filter(Boolean) : [];
+
+      const breakdown = flaggingResult?.severityBreakdown || {};
+      const highestSeverity = Object.values(breakdown).includes('high') ? 'high' : (Object.values(breakdown).includes('medium') ? 'medium' : null);
+
+      if (flagList.length > 0) {
+        const firstSentence = fullReasoning.split(/[\.\n]/)[0] || '';
+        shortReasoning = `Flags: ${flagList.join(', ')}.` + (firstSentence ? ` ${firstSentence.trim()}` : '');
+        if (highestSeverity) {
+          shortReasoning += ` Recommendation: ${highestSeverity === 'high' ? 'Human review recommended.' : 'Consider human review.'}`;
+        }
+      } else {
+        // No flags: keep the first concise sentence from the model (or a short excerpt)
+        const firstSentence = fullReasoning.split(/[\.\n]/)[0] || '';
+        shortReasoning = firstSentence.length > 240 ? `${firstSentence.slice(0,240).trim()}...` : (firstSentence || 'No concerning content detected.');
+      }
+
+      // Save the full reasoning as a separate field and overwrite reasoning with the concise version
+      flaggingResult.fullReasoning = fullReasoning;
+      flaggingResult.reasoning = shortReasoning;
+    } catch (e) {
+      // If anything goes wrong while summarizing, leave original reasoning untouched
+      console.error('Error creating concise reasoning summary:', e);
     }
 
     console.log('Final flagging result:', {

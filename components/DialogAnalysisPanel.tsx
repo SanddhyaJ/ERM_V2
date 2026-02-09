@@ -24,12 +24,36 @@ interface Message {
 }
 
 export default function DialogAnalysisPanel({ onBack }: DialogAnalysisPanelProps) {
-  // Principle descriptions for tooltips
-  const PRINCIPLE_DESCRIPTIONS = {
-    transparency: 'Evaluates how open, honest, and clear the communication is about intentions, limitations, and processes.',
-    respect: 'Assesses the level of dignity, courtesy, and consideration shown towards all individuals and their perspectives.',
-    accountability: 'Measures the degree to which responsibility is taken for actions, decisions, and their consequences.',
-    fairness: 'Evaluates the impartiality, justice, and equitable treatment in responses and recommendations.'
+  // Principle metadata (fetched from the principle scoring API). Falls back to defaults.
+  const defaultPrinciplesMeta = [
+    { id: 'empathy', name: 'Empathy', description: 'Assesses whether the interaction acknowledges and responds appropriately to emotional expression.' },
+    { id: 'safety', name: 'Safety', description: 'Assesses whether the interaction reduces the risk of harm rather than amplifying it.' },
+    { id: 'respect', name: 'Respect', description: 'Assesses whether mental health and emotional states are discussed in a non-judgmental and non-stigmatizing way.' },
+    { id: 'boundaries', name: 'Boundaries', description: 'Assesses whether appropriate interaction boundaries are maintained and unhealthy dependency is avoided.' }
+  ];
+
+  const [principlesMeta, setPrinciplesMeta] = useState<typeof defaultPrinciplesMeta>(defaultPrinciplesMeta);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const resp = await fetch('/api/principle_scoring');
+        if (resp.ok) {
+          const data = await resp.json();
+          if (data?.principles && Array.isArray(data.principles)) {
+            const mapped = data.principles.map((p: any) => ({ id: p.id, name: p.name, description: p.description || '' }));
+            setPrinciplesMeta(mapped);
+          }
+        }
+      } catch (e) {
+        console.log('Could not fetch principle metadata, using defaults');
+      }
+    })();
+  }, []);
+
+  const getPrincipleDescription = (id: string) => {
+    const p = principlesMeta.find(pr => pr.id === id);
+    return p?.description || p?.name || id;
   };
 
   // Basic state management
@@ -50,7 +74,7 @@ export default function DialogAnalysisPanel({ onBack }: DialogAnalysisPanelProps
   // Flags log filter state
   const [flagsLogFilters, setFlagsLogFilters] = useState({
     messageType: 'all', // 'all', 'user', 'ai'
-    flagCategory: 'all', // 'all', 'ethical-concern', 'misinformation', etc.
+  flagCategory: 'all', // 'all', 'emotional-distress', 'emotional-dysregulation-escalation', etc.
     severityLevel: 'all' // 'all', 'high', 'medium', 'low'
   });
   
@@ -305,11 +329,24 @@ export default function DialogAnalysisPanel({ onBack }: DialogAnalysisPanelProps
     });
 
     try {
-      // Include context around the message being analyzed
-      const contextMessages = allMessages.slice(-5).map(msg => ({
-        role: msg.type === 'user' ? 'user' : 'assistant',
-        content: msg.content
-      }));
+      // Include context around the message being analyzed.
+      // For user messages, include recent mixed-role context as before.
+      // For AI messages, only include recent AI/assistant messages so flags from prior user messages
+      // are not incorrectly applied to the assistant's message.
+      let contextMessages: { role: string; content: string }[] = [];
+      if (message.type === 'ai') {
+        const aiOnly = allMessages.filter(m => m.type === 'ai');
+        const recentAi = aiOnly.slice(-5).map(m => ({ role: 'assistant', content: m.content }));
+        if (!recentAi.some(m => m.content === message.content)) {
+          recentAi.push({ role: 'assistant', content: message.content });
+        }
+        contextMessages = recentAi;
+      } else {
+        contextMessages = allMessages.slice(-5).map(msg => ({
+          role: msg.type === 'user' ? 'user' : 'assistant',
+          content: msg.content
+        }));
+      }
 
       const response = await fetch('/api/flag', {
         method: 'POST',
@@ -320,7 +357,7 @@ export default function DialogAnalysisPanel({ onBack }: DialogAnalysisPanelProps
           messages: contextMessages,
           apiKey: apiKey,
           baseUrl: baseUrl || undefined,
-          model: selectedModel || 'gpt-3.5-turbo',
+          model: selectedModel || 'gpt-4o',
           additionalContext: summaryContext || undefined,
         }),
       });
@@ -411,7 +448,7 @@ export default function DialogAnalysisPanel({ onBack }: DialogAnalysisPanelProps
           messages: contextMessages,
           apiKey: apiKey,
           baseUrl: baseUrl || undefined,
-          model: selectedModel || 'gpt-3.5-turbo',
+          model: selectedModel || 'gpt-4o',
           additionalContext: summaryContext || undefined,
           contextMessagesLength: contextMessages.length,
           messageType: message.type,
@@ -466,14 +503,14 @@ export default function DialogAnalysisPanel({ onBack }: DialogAnalysisPanelProps
         console.error('Principle scoring API error:', response.status, response.statusText);
         
         // Create fallback scoring for failed API requests
-        const fallbackScoring: PrincipleScoring = {
+    const fallbackScoring: PrincipleScoring = {
           id: `scoring-${Date.now()}-${Math.random()}`,
           messageId: message.id,
           scores: [
-            { id: `score-${Date.now()}-1`, messageId: message.id, principleId: 'transparency', score: 0, reasoning: 'Analysis failed - please check your API configuration', timestamp: new Date() },
-            { id: `score-${Date.now()}-2`, messageId: message.id, principleId: 'respect', score: 0, reasoning: 'Analysis failed - please check your API configuration', timestamp: new Date() },
-            { id: `score-${Date.now()}-3`, messageId: message.id, principleId: 'accountability', score: 0, reasoning: 'Analysis failed - please check your API configuration', timestamp: new Date() },
-            { id: `score-${Date.now()}-4`, messageId: message.id, principleId: 'fairness', score: 0, reasoning: 'Analysis failed - please check your API configuration', timestamp: new Date() }
+      { id: `score-${Date.now()}-1`, messageId: message.id, principleId: 'empathy', score: 0, reasoning: 'Analysis failed - please check your API configuration', timestamp: new Date() },
+      { id: `score-${Date.now()}-2`, messageId: message.id, principleId: 'safety', score: 0, reasoning: 'Analysis failed - please check your API configuration', timestamp: new Date() },
+      { id: `score-${Date.now()}-3`, messageId: message.id, principleId: 'respect', score: 0, reasoning: 'Analysis failed - please check your API configuration', timestamp: new Date() },
+      { id: `score-${Date.now()}-4`, messageId: message.id, principleId: 'boundaries', score: 0, reasoning: 'Analysis failed - please check your API configuration', timestamp: new Date() }
           ],
           analysisTimestamp: new Date(),
         };
@@ -494,14 +531,14 @@ export default function DialogAnalysisPanel({ onBack }: DialogAnalysisPanelProps
       console.error('Error scoring principles:', error);
       
       // Create fallback scoring for errors
-      const errorScoring: PrincipleScoring = {
+    const errorScoring: PrincipleScoring = {
         id: `scoring-${Date.now()}-${Math.random()}`,
         messageId: message.id,
         scores: [
-          { id: `score-${Date.now()}-1`, messageId: message.id, principleId: 'transparency', score: 0, reasoning: 'Analysis error - please check your connection and API key', timestamp: new Date() },
-          { id: `score-${Date.now()}-2`, messageId: message.id, principleId: 'respect', score: 0, reasoning: 'Analysis error - please check your connection and API key', timestamp: new Date() },
-          { id: `score-${Date.now()}-3`, messageId: message.id, principleId: 'accountability', score: 0, reasoning: 'Analysis error - please check your connection and API key', timestamp: new Date() },
-          { id: `score-${Date.now()}-4`, messageId: message.id, principleId: 'fairness', score: 0, reasoning: 'Analysis error - please check your connection and API key', timestamp: new Date() }
+      { id: `score-${Date.now()}-1`, messageId: message.id, principleId: 'empathy', score: 0, reasoning: 'Analysis error - please check your connection and API key', timestamp: new Date() },
+      { id: `score-${Date.now()}-2`, messageId: message.id, principleId: 'safety', score: 0, reasoning: 'Analysis error - please check your connection and API key', timestamp: new Date() },
+      { id: `score-${Date.now()}-3`, messageId: message.id, principleId: 'respect', score: 0, reasoning: 'Analysis error - please check your connection and API key', timestamp: new Date() },
+      { id: `score-${Date.now()}-4`, messageId: message.id, principleId: 'boundaries', score: 0, reasoning: 'Analysis error - please check your connection and API key', timestamp: new Date() }
         ],
         analysisTimestamp: new Date(),
       };
@@ -522,10 +559,10 @@ export default function DialogAnalysisPanel({ onBack }: DialogAnalysisPanelProps
 
   const updatePrincipleVisualizationData = (allMessages: Message[]) => {
     const principles = [
-      { id: 'transparency', name: 'Transparency' },
+      { id: 'empathy', name: 'Empathy' },
+      { id: 'safety', name: 'Safety' },
       { id: 'respect', name: 'Respect' },
-      { id: 'accountability', name: 'Accountability' },
-      { id: 'fairness', name: 'Fairness' }
+      { id: 'boundaries', name: 'Boundaries' }
     ];
 
     const vizData: PrincipleVisualizationData[] = principles.map(principle => {
@@ -696,7 +733,7 @@ export default function DialogAnalysisPanel({ onBack }: DialogAnalysisPanelProps
         format: 'bullets',
         apiKey,
         baseUrl: baseUrl || undefined,
-        model: selectedModel || 'gpt-3.5-turbo',
+  model: selectedModel || 'gpt-4o',
       };
 
       console.log('Sending summary request:', {
@@ -772,6 +809,33 @@ export default function DialogAnalysisPanel({ onBack }: DialogAnalysisPanelProps
       }
       return newSet;
     });
+  };
+
+  const getSeverityColor = (severity: string) => {
+    switch (severity) {
+      case 'high': return 'text-red-600 bg-red-100';
+      case 'medium': return 'text-yellow-600 bg-yellow-100';
+      case 'low': return 'text-orange-600 bg-orange-100';
+      case 'none': return 'text-green-600 bg-green-100';
+      default: return 'text-gray-600 bg-gray-100';
+    }
+  };
+
+  const getSeverityIconClass = (severity: string) => {
+    switch (severity) {
+      case 'high': return 'text-red-500';
+      case 'medium': return 'text-yellow-500';
+      case 'low': return 'text-orange-500';
+      default: return 'text-gray-500';
+    }
+  };
+
+  const getHighestSeverity = (flags: FlaggedContent[] | undefined) => {
+    if (!flags || flags.length === 0) return null;
+    if (flags.some(f => f.severity === 'high')) return 'high';
+    if (flags.some(f => f.severity === 'medium')) return 'medium';
+    if (flags.some(f => f.severity === 'low')) return 'low';
+    return null;
   };
 
   // Show tooltip
@@ -1123,9 +1187,24 @@ export default function DialogAnalysisPanel({ onBack }: DialogAnalysisPanelProps
                   ) : (
                     messages.map((message, index) => (
                       <div key={message.id} className="space-y-2 mb-4">
+                        {/* If human-intervention flag exists, show a color-coded banner above the message */}
+                        {message.flags && message.flags.some(f => f.type === 'human-intervention-recommended') && (() => {
+                          const sev = getHighestSeverity(message.flags) || 'high';
+                          const sevClass = sev === 'high' ? 'bg-red-600 text-white' : (sev === 'medium' ? 'bg-yellow-600 text-black' : 'bg-orange-600 text-white');
+                          return (
+                            <div className={`flex ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}>
+                              <div className="max-w-[85%] lg:max-w-2xl">
+                                <div className={`${sevClass} mb-1 rounded px-3 py-2 font-semibold flex items-center`}>
+                                  <AlertTriangle className={`w-4 h-4 mr-2 ${getSeverityIconClass(sev)}`} />
+                                  Human intervention recommended — please review immediately
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })()}
                         <div className={`flex ${message.type === 'user' ? 'justify-end' : 'justify-start'} animate-fadeIn`}>
                           <div
-                            className={`max-w-xs lg:max-w-md px-4 py-3 rounded-lg shadow-sm ${
+                            className={`max-w-[85%] lg:max-w-2xl px-4 py-3 rounded-lg shadow-sm ${
                               message.type === 'user'
                                 ? 'bg-blue-600 text-white rounded-tr-none'
                                 : 'bg-gray-100 text-gray-800 rounded-tl-none'
@@ -1141,43 +1220,45 @@ export default function DialogAnalysisPanel({ onBack }: DialogAnalysisPanelProps
                                 #{index + 1}
                               </span>
                               {message.flags && message.flags.length > 0 && (
-                                <AlertTriangle className="w-4 h-4 ml-2 text-red-500" />
+                                <AlertTriangle className={`w-4 h-4 ml-2 ${getSeverityIconClass(getHighestSeverity(message.flags) || '')}`} />
                               )}
                             </div>
                             <p className="text-sm whitespace-pre-wrap">{message.content}</p>
                           </div>
                         </div>
                         
-                        {/* Show flags if present */}
-                        {message.flags && message.flags.length > 0 && (
-                          <div className={`flex ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}>
-                            <div className="max-w-xs lg:max-w-md">
-                              {message.flags.map((flag) => (
-                                <div
-                                  key={flag.id}
-                                  className={`px-3 py-2 rounded-lg text-sm border-l-4 my-1 ${
-                                    flag.severity === 'high' ? 'bg-red-50 border-red-500 text-red-800' :
-                                    flag.severity === 'medium' ? 'bg-yellow-50 border-yellow-500 text-yellow-800' :
-                                    'bg-orange-50 border-orange-500 text-orange-800'
-                                  }`}
-                                >
-                                  <div className="flex items-center mb-1">
-                                    <Flag className="w-3 h-3 mr-1" />
-                                    <span className="font-medium text-xs uppercase">
-                                      {flag.type.replace('-', ' ')} - {flag.severity}
-                                    </span>
-                                  </div>
-                                  <p>{flag.reason}</p>
+                        {/* Grouped container: banner, bubble, and compact pills for consistent alignment */}
+                        <div className={`flex ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}>
+                          <div className="max-w-[85%] lg:max-w-2xl flex flex-col items-start">
+                            {message.flags && message.flags.some(f => f.type === 'human-intervention-recommended') && (() => {
+                              const sev = getHighestSeverity(message.flags) || 'high';
+                              const bg = sev === 'high' ? 'bg-red-50 border-red-400 text-red-800' : (sev === 'medium' ? 'bg-yellow-50 border-yellow-400 text-yellow-800' : 'bg-orange-50 border-orange-400 text-orange-800');
+                              return (
+                                <div className={`mb-2 rounded border px-3 py-2 ${bg} font-semibold flex items-center w-full`}>
+                                  <AlertTriangle className={`w-4 h-4 mr-2 ${getSeverityIconClass(sev)}`} />
+                                  <span className="text-sm">Human intervention recommended — review needed</span>
                                 </div>
-                              ))}
-                            </div>
+                              );
+                            })()}
+
+                            {message.flags && message.flags.filter(f => f.type !== 'human-intervention-recommended').length > 0 && (
+                              <div className="mt-2 w-full">
+                                <div className="flex flex-wrap gap-2">
+                                  {message.flags.filter(f => f.type !== 'human-intervention-recommended').map(flag => (
+                                    <span key={flag.id} className={`inline-block text-xs px-2 py-1 rounded font-medium ${getSeverityColor(flag.severity)}`}>
+                                      {flag.type.replace(/-/g, ' ')}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
                           </div>
-                        )}
+                        </div>
 
                         {/* Show principle scoring if present */}
                         {message.principleScoring && message.principleScoring.scores.length > 0 && (
                           <div className={`flex ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}>
-                            <div className="max-w-xs lg:max-w-md">
+                            <div className="max-w-[85%] lg:max-w-2xl">
                               <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm">
                                 <div className="flex items-center justify-between mb-2">
                                   <span className="font-medium text-blue-800 flex items-center">
@@ -1206,7 +1287,7 @@ export default function DialogAnalysisPanel({ onBack }: DialogAnalysisPanelProps
                                         onMouseEnter={(e) => showTooltip(
                                           e, 
                                           score.principleId.charAt(0).toUpperCase() + score.principleId.slice(1), 
-                                          PRINCIPLE_DESCRIPTIONS[score.principleId as keyof typeof PRINCIPLE_DESCRIPTIONS]
+                                          getPrincipleDescription(score.principleId)
                                         )}
                                         onMouseLeave={hideTooltip}
                                       >
@@ -1241,6 +1322,23 @@ export default function DialogAnalysisPanel({ onBack }: DialogAnalysisPanelProps
                             </div>
                           </div>
                         )}
+                                {/* Show detailed flags inside expanded analysis if present */}
+                                {expandedAnalysis.has(message.id) && message.flaggingAnalysis && message.flaggingAnalysis.flags && message.flaggingAnalysis.flags.length > 0 && (
+                                  <div className="mt-3 pt-2 border-t border-gray-200">
+                                    <div className="text-xs text-gray-600 mb-1"><strong>Flags</strong></div>
+                                    <div className="space-y-2">
+                                      {message.flaggingAnalysis.flags.map(flag => (
+                                        <div key={flag.id} className="text-xs p-2 rounded border bg-white">
+                                          <div className="flex items-center justify-between">
+                                            <div className="font-medium text-gray-700">{flag.type.replace(/-/g, ' ')}</div>
+                                            <div className={`px-2 py-1 rounded text-xs font-medium ${getSeverityColor(flag.severity)}`}>{flag.severity}</div>
+                                          </div>
+                                          <div className="text-gray-600 mt-1">{flag.reason}</div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
                       </div>
                     ))
                   )}

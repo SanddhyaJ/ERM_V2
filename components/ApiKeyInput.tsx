@@ -87,12 +87,12 @@ export default function ApiKeyInput({ onApiKeySet, isConnected, currentBaseUrl, 
         body: JSON.stringify({
           messages: [{ role: 'user', content: 'Hello' }],
           apiKey: apiKey,
-          model: 'gpt-3.5-turbo',
+          model: 'gpt-4o',
         }),
       });
       
       if (response.ok) {
-        onApiKeySet(apiKey, undefined, 'gpt-3.5-turbo');
+  onApiKeySet(apiKey, undefined, 'gpt-4o');
       } else {
         const errorData = await response.json();
         alert(errorData.error || 'Invalid API key. Please check and try again.');

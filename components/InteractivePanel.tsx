@@ -25,12 +25,38 @@ interface Message {
 }
 
 export default function InteractivePanel({ mode, onBack }: InteractivePanelProps) {
-  // Principle descriptions for tooltips
-  const PRINCIPLE_DESCRIPTIONS = {
-    transparency: 'Evaluates how open, honest, and clear the communication is about intentions, limitations, and processes.',
-    respect: 'Assesses the level of dignity, courtesy, and consideration shown towards all individuals and their perspectives.',
-    accountability: 'Measures the degree to which responsibility is taken for actions, decisions, and their consequences.',
-    fairness: 'Evaluates the impartiality, justice, and equitable treatment in responses and recommendations.'
+  // Principle metadata (fetched from the principle scoring API). Falls back to local defaults.
+  const defaultPrinciplesMeta = [
+    { id: 'empathy', name: 'Empathy', description: 'Assesses whether the interaction acknowledges and responds appropriately to emotional expression.' },
+    { id: 'safety', name: 'Safety', description: 'Assesses whether the interaction reduces the risk of harm rather than amplifying it.' },
+    { id: 'respect', name: 'Respect', description: 'Assesses whether mental health and emotional states are discussed in a non-judgmental and non-stigmatizing way.' },
+    { id: 'boundaries', name: 'Boundaries', description: 'Assesses whether appropriate interaction boundaries are maintained and unhealthy dependency is avoided.' }
+  ];
+
+  const [principlesMeta, setPrinciplesMeta] = useState<typeof defaultPrinciplesMeta>(defaultPrinciplesMeta);
+
+  useEffect(() => {
+    // Try to fetch principle metadata from the backend; if it fails, keep defaults
+    (async () => {
+      try {
+        const resp = await fetch('/api/principle_scoring');
+        if (resp.ok) {
+          const data = await resp.json();
+          if (data?.principles && Array.isArray(data.principles)) {
+            // Map to expected shape and set
+            const mapped = data.principles.map((p: any) => ({ id: p.id, name: p.name, description: p.description || '' }));
+            setPrinciplesMeta(mapped);
+          }
+        }
+      } catch (e) {
+        console.log('Could not fetch principle metadata, using defaults');
+      }
+    })();
+  }, []);
+
+  const getPrincipleDescription = (id: string) => {
+    const p = principlesMeta.find(pr => pr.id === id);
+    return p?.description || p?.name || id;
   };
 
   // Basic state management
@@ -49,7 +75,7 @@ export default function InteractivePanel({ mode, onBack }: InteractivePanelProps
   // Flags log filter state
   const [flagsLogFilters, setFlagsLogFilters] = useState({
     messageType: 'all', // 'all', 'user', 'ai'
-    flagCategory: 'all', // 'all', 'ethical-concern', 'misinformation', etc.
+  flagCategory: 'all', // 'all', 'emotional-distress', 'emotional-dysregulation-escalation', etc.
     severityLevel: 'all' // 'all', 'high', 'medium', 'low'
   });
   
@@ -192,11 +218,25 @@ export default function InteractivePanel({ mode, onBack }: InteractivePanelProps
     });
 
     try {
-      // Include context around the message being analyzed
-      const contextMessages = allMessages.slice(-5).map(msg => ({
-        role: msg.type === 'user' ? 'user' : 'assistant',
-        content: msg.content
-      }));
+      // Include context around the message being analyzed.
+      // For user messages, include recent mixed-role context as before.
+      // For AI messages, only include recent AI/assistant messages so flags from prior user messages
+      // are not incorrectly applied to the assistant's message.
+      let contextMessages: { role: string; content: string }[] = [];
+      if (message.type === 'ai') {
+        const aiOnly = allMessages.filter(m => m.type === 'ai');
+        const recentAi = aiOnly.slice(-5).map(m => ({ role: 'assistant', content: m.content }));
+        // Ensure current AI message is included if slicing removed it
+        if (!recentAi.some(m => m.content === message.content)) {
+          recentAi.push({ role: 'assistant', content: message.content });
+        }
+        contextMessages = recentAi;
+      } else {
+        contextMessages = allMessages.slice(-5).map(msg => ({
+          role: msg.type === 'user' ? 'user' : 'assistant',
+          content: msg.content
+        }));
+      }
 
       const response = await fetch('/api/flag', {
         method: 'POST',
@@ -207,7 +247,7 @@ export default function InteractivePanel({ mode, onBack }: InteractivePanelProps
           messages: contextMessages,
           apiKey: apiKey,
           baseUrl: baseUrl || undefined,
-          model: selectedModel || 'gpt-3.5-turbo',
+      model: selectedModel || 'gpt-4o',
           additionalContext: summaryContext || undefined,
         }),
       });
@@ -278,10 +318,7 @@ export default function InteractivePanel({ mode, onBack }: InteractivePanelProps
           setFlaggedMessages(prev => [...prev, ...newFlags]);
         }
         
-        // Auto-expand analysis if message has any flags
-        if (newFlags.length > 0 && !expandedAnalysis.has(message.id)) {
-          setExpandedAnalysis(prev => new Set([...prev, message.id]));
-        }
+  // Do not auto-expand analysis; keep collapsed by default. Users can open the analysis manually.
 
         // Update the message with the analysis
         setMessages(prev => {
@@ -318,11 +355,14 @@ export default function InteractivePanel({ mode, onBack }: InteractivePanelProps
                 ...msg,
                 flaggingAnalysis: fallbackAnalysis,
                 severityBreakdown: {
-                  "ethical-concern": "none",
-                  "harmful-content": "none",
-                  "misinformation": "none",
-                  "bias": "none",
-                  "other": "none"
+                  "emotional-distress": "none",
+                  "emotional-dysregulation-escalation": "none",
+                  "persistence-of-distress": "none",
+                  "social-withdrawal-lack-of-support": "none",
+                  "over-reliance-ai": "none",
+                  "reduced-coping-capacity": "none",
+                  "hopelessness-reduced-future-orientation": "none",
+                  "human-intervention-recommended": "none"
                 }
               };
             }
@@ -351,11 +391,14 @@ export default function InteractivePanel({ mode, onBack }: InteractivePanelProps
               ...msg,
               flaggingAnalysis: errorAnalysis,
               severityBreakdown: {
-                "ethical-concern": "none",
-                "harmful-content": "none",
-                "misinformation": "none",
-                "bias": "none",
-                "other": "none"
+                "emotional-distress": "none",
+                "emotional-dysregulation-escalation": "none",
+                "persistence-of-distress": "none",
+                "social-withdrawal-lack-of-support": "none",
+                "over-reliance-ai": "none",
+                "reduced-coping-capacity": "none",
+                "hopelessness-reduced-future-orientation": "none",
+                "human-intervention-recommended": "none"
               }
             };
           }
@@ -408,7 +451,7 @@ export default function InteractivePanel({ mode, onBack }: InteractivePanelProps
           messages: contextMessages,
           apiKey: apiKey,
           baseUrl: baseUrl || undefined,
-          model: selectedModel || 'gpt-3.5-turbo',
+          model: selectedModel || 'gpt-4o',
           additionalContext: summaryContext || undefined,
         }),
       });
@@ -492,14 +535,14 @@ export default function InteractivePanel({ mode, onBack }: InteractivePanelProps
         console.error('Error details:', errorData);
         
         // Create fallback scoring for failed API requests
-        const fallbackScoring: PrincipleScoring = {
+    const fallbackScoring: PrincipleScoring = {
           id: `scoring-${Date.now()}-${Math.random()}`,
           messageId: message.id,
           scores: [
-            { id: `score-${Date.now()}-1`, messageId: message.id, principleId: 'transparency', score: 0, reasoning: 'Analysis failed - please check your API configuration', timestamp: new Date() },
-            { id: `score-${Date.now()}-2`, messageId: message.id, principleId: 'respect', score: 0, reasoning: 'Analysis failed - please check your API configuration', timestamp: new Date() },
-            { id: `score-${Date.now()}-3`, messageId: message.id, principleId: 'accountability', score: 0, reasoning: 'Analysis failed - please check your API configuration', timestamp: new Date() },
-            { id: `score-${Date.now()}-4`, messageId: message.id, principleId: 'fairness', score: 0, reasoning: 'Analysis failed - please check your API configuration', timestamp: new Date() }
+      { id: `score-${Date.now()}-1`, messageId: message.id, principleId: 'empathy', score: 0, reasoning: 'Analysis failed - please check your API configuration', timestamp: new Date() },
+      { id: `score-${Date.now()}-2`, messageId: message.id, principleId: 'safety', score: 0, reasoning: 'Analysis failed - please check your API configuration', timestamp: new Date() },
+      { id: `score-${Date.now()}-3`, messageId: message.id, principleId: 'respect', score: 0, reasoning: 'Analysis failed - please check your API configuration', timestamp: new Date() },
+      { id: `score-${Date.now()}-4`, messageId: message.id, principleId: 'boundaries', score: 0, reasoning: 'Analysis failed - please check your API configuration', timestamp: new Date() }
           ],
           analysisTimestamp: new Date(),
         };
@@ -521,14 +564,14 @@ export default function InteractivePanel({ mode, onBack }: InteractivePanelProps
       console.error('Error scoring principles:', error);
       
       // Create fallback scoring for errors
-      const errorScoring: PrincipleScoring = {
+        const errorScoring: PrincipleScoring = {
         id: `scoring-${Date.now()}-${Math.random()}`,
         messageId: message.id,
         scores: [
-          { id: `score-${Date.now()}-1`, messageId: message.id, principleId: 'transparency', score: 0, reasoning: 'Analysis error - please check your connection and API key', timestamp: new Date() },
-          { id: `score-${Date.now()}-2`, messageId: message.id, principleId: 'respect', score: 0, reasoning: 'Analysis error - please check your connection and API key', timestamp: new Date() },
-          { id: `score-${Date.now()}-3`, messageId: message.id, principleId: 'accountability', score: 0, reasoning: 'Analysis error - please check your connection and API key', timestamp: new Date() },
-          { id: `score-${Date.now()}-4`, messageId: message.id, principleId: 'fairness', score: 0, reasoning: 'Analysis error - please check your connection and API key', timestamp: new Date() }
+          { id: `score-${Date.now()}-1`, messageId: message.id, principleId: 'empathy', score: 0, reasoning: 'Analysis error - please check your connection and API key', timestamp: new Date() },
+          { id: `score-${Date.now()}-2`, messageId: message.id, principleId: 'safety', score: 0, reasoning: 'Analysis error - please check your connection and API key', timestamp: new Date() },
+          { id: `score-${Date.now()}-3`, messageId: message.id, principleId: 'respect', score: 0, reasoning: 'Analysis error - please check your connection and API key', timestamp: new Date() },
+          { id: `score-${Date.now()}-4`, messageId: message.id, principleId: 'boundaries', score: 0, reasoning: 'Analysis error - please check your connection and API key', timestamp: new Date() }
         ],
         analysisTimestamp: new Date(),
       };
@@ -550,10 +593,10 @@ export default function InteractivePanel({ mode, onBack }: InteractivePanelProps
 
   const updatePrincipleVisualizationData = (allMessages: Message[]) => {
     const principles = [
-      { id: 'transparency', name: 'Transparency' },
+      { id: 'empathy', name: 'Empathy' },
+      { id: 'safety', name: 'Safety' },
       { id: 'respect', name: 'Respect' },
-      { id: 'accountability', name: 'Accountability' },
-      { id: 'fairness', name: 'Fairness' }
+      { id: 'boundaries', name: 'Boundaries' }
     ];
 
     const vizData: PrincipleVisualizationData[] = principles.map(principle => {
@@ -627,6 +670,23 @@ export default function InteractivePanel({ mode, onBack }: InteractivePanelProps
       case 'none': return 'text-green-600 bg-green-100';
       default: return 'text-gray-600 bg-gray-100';
     }
+  };
+
+  const getSeverityIconClass = (severity: string) => {
+    switch (severity) {
+      case 'high': return 'text-red-500';
+      case 'medium': return 'text-yellow-500';
+      case 'low': return 'text-orange-500';
+      default: return 'text-gray-500';
+    }
+  };
+
+  const getHighestSeverity = (flags: FlaggedContent[] | undefined) => {
+    if (!flags || flags.length === 0) return null;
+    if (flags.some(f => f.severity === 'high')) return 'high';
+    if (flags.some(f => f.severity === 'medium')) return 'medium';
+    if (flags.some(f => f.severity === 'low')) return 'low';
+    return null;
   };
 
   const formatContentType = (type: string) => {
@@ -721,7 +781,7 @@ export default function InteractivePanel({ mode, onBack }: InteractivePanelProps
         format: 'bullets',
         apiKey,
         baseUrl: baseUrl || undefined,
-        model: selectedModel || 'gpt-3.5-turbo',
+  model: selectedModel || 'gpt-4o',
       };
 
       console.log('Summary request:', {
@@ -730,7 +790,7 @@ export default function InteractivePanel({ mode, onBack }: InteractivePanelProps
         format: 'bullets',
         hasApiKey: !!apiKey,
         hasBaseUrl: !!baseUrl,
-        model: selectedModel || 'gpt-3.5-turbo'
+  model: selectedModel || 'gpt-4o'
       });
 
       const response = await fetch('/api/summary', {
@@ -853,7 +913,7 @@ export default function InteractivePanel({ mode, onBack }: InteractivePanelProps
   const handleApiKeySet = (key: string, url?: string, model?: string) => {
     setApiKey(key);
     setBaseUrl(url || '');
-    setSelectedModel(model || 'gpt-3.5-turbo');
+  setSelectedModel(model || 'gpt-4o');
     setIsConnected(true);
   };
 
@@ -905,7 +965,7 @@ export default function InteractivePanel({ mode, onBack }: InteractivePanelProps
           messages: messages_for_api,
           apiKey,
           baseUrl: baseUrl || undefined,
-          model: selectedModel || 'gpt-3.5-turbo',
+          model: selectedModel || 'gpt-4o',
         }),
       });
 
@@ -1036,7 +1096,7 @@ export default function InteractivePanel({ mode, onBack }: InteractivePanelProps
           format: 'bullets',
           apiKey,
           baseUrl: baseUrl || undefined,
-          model: selectedModel || 'gpt-3.5-turbo',
+          model: selectedModel || 'gpt-4o',
         };
 
         const response = await fetch('/api/summary', {
@@ -1679,7 +1739,7 @@ export default function InteractivePanel({ mode, onBack }: InteractivePanelProps
                 </CardTitle>
                 <CardDescription>
                   {mode.subMode === 'default-chat' 
-                    ? baseUrl ? `Chat using custom endpoint: ${getHostname(baseUrl)}` : 'Chat with OpenAI GPT-3.5-turbo'
+                    ? baseUrl ? `Chat using custom endpoint: ${getHostname(baseUrl)}` : 'Chat with OpenAI GPT-4o'
                     : baseUrl ? `Using custom endpoint with workflow: ${getHostname(baseUrl)}` : 'Using custom workflow with OpenAI'}
                 </CardDescription>
               </CardHeader>
@@ -1810,9 +1870,25 @@ export default function InteractivePanel({ mode, onBack }: InteractivePanelProps
                   ) : (
                     messages.map((message, index) => (
                       <div key={message.id} className="space-y-2 mb-4">
+                        {/* Grouped container: only the human-intervention banner is shown above the message bubble for prominence */}
+                        <div className={`flex ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}>
+                          <div className="max-w-[85%] lg:max-w-2xl">
+                            {message.flags && message.flags.some(f => f.type === 'human-intervention-recommended') && (() => {
+                              const sev = getHighestSeverity(message.flags) || 'high';
+                              const bg = sev === 'high' ? 'bg-red-50 border-red-400 text-red-800' : (sev === 'medium' ? 'bg-yellow-50 border-yellow-400 text-yellow-800' : 'bg-orange-50 border-orange-400 text-orange-800');
+                              return (
+                                <div className={`mb-2 rounded border px-3 py-2 ${bg} font-semibold flex items-center w-full`}>
+                                  <AlertTriangle className={`w-4 h-4 mr-2 ${getSeverityIconClass(sev)}`} />
+                                  <span className="text-sm">Human intervention recommended — review needed</span>
+                                </div>
+                              );
+                            })()}
+                          </div>
+                        </div>
+
                         <div className={`flex ${message.type === 'user' ? 'justify-end' : 'justify-start'} animate-fadeIn`}>
                           <div
-                            className={`max-w-xs lg:max-w-md px-4 py-3 rounded-lg shadow-sm ${
+                            className={`max-w-[85%] lg:max-w-2xl px-4 py-3 rounded-lg shadow-sm ${
                               message.type === 'user'
                                 ? 'bg-blue-600 text-white rounded-tr-none'
                                 : 'bg-gray-100 text-gray-800 rounded-tl-none'
@@ -1828,43 +1904,32 @@ export default function InteractivePanel({ mode, onBack }: InteractivePanelProps
                                 #{index + 1} • {message.timestamp.toLocaleTimeString()}
                               </span>
                               {message.flags && message.flags.length > 0 && (
-                                <AlertTriangle className="w-4 h-4 ml-2 text-red-500" />
+                                <AlertTriangle className={`w-4 h-4 ml-2 ${getSeverityIconClass(getHighestSeverity(message.flags) || '')}`} />
                               )}
                             </div>
                             <p className="text-sm whitespace-pre-wrap">{message.content}</p>
                           </div>
                         </div>
                         
-                        {/* Show flags if present */}
-                        {message.flags && message.flags.length > 0 && (
+                        {/* Compact flag pills (non human-intervention) shown below the message bubble */}
+                        {message.flags && message.flags.filter(f => f.type !== 'human-intervention-recommended').length > 0 && (
                           <div className={`flex ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}>
-                            <div className="max-w-xs lg:max-w-md">
-                              {message.flags.map((flag) => (
-                                <div
-                                  key={flag.id}
-                                  className={`px-3 py-2 rounded-lg text-sm border-l-4 my-1 ${
-                                    flag.severity === 'high' ? 'bg-red-50 border-red-500 text-red-800' :
-                                    flag.severity === 'medium' ? 'bg-yellow-50 border-yellow-500 text-yellow-800' :
-                                    'bg-orange-50 border-orange-500 text-orange-800'
-                                  }`}
-                                >
-                                  <div className="flex items-center mb-1">
-                                    <Flag className="w-3 h-3 mr-1" />
-                                    <span className="font-medium text-xs uppercase">
-                                      {flag.type.replace('-', ' ')} - {flag.severity}
-                                    </span>
-                                  </div>
-                                  <p className="text-xs">{flag.reason}</p>
-                                </div>
-                              ))}
+                            <div className={`max-w-[85%] lg:max-w-2xl mt-2 w-full ${message.type === 'user' ? 'flex justify-end' : ''}`}>
+                              <div className={`flex flex-wrap gap-2 ${message.type === 'user' ? 'justify-end' : ''}`}>
+                                {message.flags.filter(f => f.type !== 'human-intervention-recommended').map(flag => (
+                                  <span key={flag.id} className={`inline-block text-xs px-2 py-1 rounded font-medium ${getSeverityColor(flag.severity)}`}>
+                                    {flag.type.replace(/-/g, ' ')}
+                                  </span>
+                                ))}
+                              </div>
                             </div>
                           </div>
                         )}
-                        
+
                         {/* Flagging Analysis - Show if exists */}
                         {message.flaggingAnalysis && (
                           <div className={`flex ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}>
-                            <div className="max-w-xs lg:max-w-md">
+                            <div className="max-w-[85%] lg:max-w-2xl">
                               <div className="bg-gray-50 border border-gray-200 rounded-lg text-sm my-1">
                                 <button
                                   onClick={() => toggleAnalysisExpansion(message.id)}
@@ -1893,8 +1958,26 @@ export default function InteractivePanel({ mode, onBack }: InteractivePanelProps
                                         <strong>Analysis:</strong>
                                       </p>
                                       <p className="text-xs text-gray-700 leading-relaxed">
-                                        {message.flaggingAnalysis.reasoning}
+                                        {/* Show full reasoning when available, otherwise fall back to the concise reasoning */}
+                                        {message.flaggingAnalysis.fullReasoning || message.flaggingAnalysis.reasoning}
                                       </p>
+                                        {/* Detailed flags list (moved into analysis dropdown) */}
+                                        {message.flaggingAnalysis.flags && message.flaggingAnalysis.flags.length > 0 && (
+                                          <div className="mt-3">
+                                            <div className="text-xs text-gray-600 mb-1"><strong>Flags</strong></div>
+                                            <div className="space-y-2">
+                                              {message.flaggingAnalysis.flags.map(flag => (
+                                                <div key={flag.id} className="text-xs p-2 rounded border bg-white">
+                                                  <div className="flex items-center justify-between">
+                                                    <div className="font-medium text-gray-700">{flag.type.replace(/-/g, ' ')}</div>
+                                                    <div className={`px-2 py-1 rounded text-xs font-medium ${getSeverityColor(flag.severity)}`}>{flag.severity}</div>
+                                                  </div>
+                                                  <div className="text-gray-600 mt-1">{flag.reason}</div>
+                                                </div>
+                                              ))}
+                                            </div>
+                                          </div>
+                                        )}
                                       
                                       {message.severityBreakdown && Object.keys(message.severityBreakdown).length > 0 && (
                                         <div className="mt-3 border-t border-gray-200 pt-3">
@@ -1933,7 +2016,7 @@ export default function InteractivePanel({ mode, onBack }: InteractivePanelProps
                   
                   {isTyping && (
                     <div className="flex justify-start animate-fadeIn">
-                      <div className="bg-gray-100 text-gray-800 max-w-xs lg:max-w-md px-4 py-3 rounded-lg rounded-tl-none shadow-sm">
+                      <div className="bg-gray-100 text-gray-800 max-w-[85%] lg:max-w-2xl px-4 py-3 rounded-lg rounded-tl-none shadow-sm">
                         <div className="flex items-center">
                           <Bot className="w-4 h-4 mr-2 text-blue-600" />
                           <div className="flex space-x-2">
@@ -2319,7 +2402,7 @@ export default function InteractivePanel({ mode, onBack }: InteractivePanelProps
                           <div className="relative group">
                             <Info className="w-4 h-4 text-gray-400 hover:text-gray-600 cursor-help" />
                             <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-10 max-w-64 text-center">
-                              {PRINCIPLE_DESCRIPTIONS[principleData.principleId as keyof typeof PRINCIPLE_DESCRIPTIONS]}
+                              {getPrincipleDescription(principleData.principleId)}
                               <div className="absolute top-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900"></div>
                             </div>
                           </div>

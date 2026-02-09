@@ -83,13 +83,13 @@ export default function Dashboard() {
               </div>
               <CardTitle className="text-2xl">Interactive Mode</CardTitle>
               <CardDescription className="text-lg">
-                Chat with real AI using OpenAI&apos;s GPT or upload custom workflows
+                Chat with real AI using OpenAI GPT-4o or upload custom workflows
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex items-center space-x-3 text-sm text-gray-600">
                 <Bot className="w-4 h-4" />
-                <span>Real OpenAI GPT integration</span>
+                <span>Real OpenAI GPT-4o integration</span>
               </div>
               <div className="flex items-center space-x-3 text-sm text-gray-600">
                 <Workflow className="w-4 h-4" />

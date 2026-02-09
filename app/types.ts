@@ -30,7 +30,7 @@ export interface ModelInfo {
 export interface FlaggedContent {
   id: string;
   messageId: string;
-  type: 'ethical-concern' | 'harmful-content' | 'misinformation' | 'bias' | 'none' | 'other';
+  type: 'emotional-distress' | 'emotional-dysregulation-escalation' | 'persistence-of-distress' | 'social-withdrawal-lack-of-support' | 'over-reliance-ai' | 'reduced-coping-capacity' | 'hopelessness-reduced-future-orientation' | 'human-intervention-recommended' | 'none' | 'other';
   severity: 'low' | 'medium' | 'high';
   reason: string;
   flaggedText: string;
@@ -44,6 +44,7 @@ export interface FlaggingAnalysis {
   shouldFlag: boolean;
   flags: FlaggedContent[];
   reasoning: string;
+  fullReasoning?: string;
   analysisTimestamp: Date;
 }
 

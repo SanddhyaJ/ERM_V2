@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
       format, 
       apiKey, 
       baseUrl, 
-      model = 'gpt-3.5-turbo' 
+  model = 'gpt-4o' 
     } = body;
 
     console.log('Summary request received:', {

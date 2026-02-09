@@ -74,7 +74,7 @@ export default function InteractivePanel({ mode, onBack }: InteractivePanelProps
                 className={`mb-4 flex ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}
               >
                 <div 
-                  className={`p-3 rounded-lg max-w-[70%] ${
+                  className={`p-3 rounded-lg max-w-[85%] ${
                     message.type === 'user' 
                       ? 'bg-blue-500 text-white' 
                       : 'bg-gray-100 text-gray-800'
