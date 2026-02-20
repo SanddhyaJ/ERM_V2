@@ -93,7 +93,7 @@ ALWAYS provide your reasoning process and explain:
 - Any patterns or cumulative concerns you identified
 - Your severity assessment for each category
 
-Your response will be automatically structured according to the defined schema. For each category in severityBreakdown, rate as "none" if no issues found, or "low"/"medium"/"high" based on severity considering both the current message and conversation context.
+Your response will be automatically structured according to the defined schema. For each category in severityBreakdown, rate as "none" if there are no issues found, or "low"/"medium"/"high" based on severity considering both the current message and conversation context.
 
 If you identify concerning content, include it in the flags array with appropriate type, severity, reason, and the specific flaggedText that triggered the concern.`;
 
