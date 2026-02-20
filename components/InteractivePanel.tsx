@@ -107,6 +107,7 @@ export default function InteractivePanel({ mode, onBack }: InteractivePanelProps
   
   // PDF export state
   const [isExportingPDF, setIsExportingPDF] = useState(false);
+  const [exportMode, setExportMode] = useState<'pdf' | 'csv' | 'both'>('both');
   
   // Message cutoff state for analysis
   const [messageCutoff, setMessageCutoff] = useState<number>(0); // 0 means no cutoff (use all messages)
@@ -356,6 +357,8 @@ export default function InteractivePanel({ mode, onBack }: InteractivePanelProps
                 flaggingAnalysis: fallbackAnalysis,
                 severityBreakdown: {
                   "emotional-distress": "none",
+                  "suicidal-ideation": "none",
+                  "mania-psychosis": "none",
                   "emotional-dysregulation-escalation": "none",
                   "persistence-of-distress": "none",
                   "social-withdrawal-lack-of-support": "none",
@@ -392,6 +395,8 @@ export default function InteractivePanel({ mode, onBack }: InteractivePanelProps
               flaggingAnalysis: errorAnalysis,
               severityBreakdown: {
                 "emotional-distress": "none",
+                "suicidal-ideation": "none",
+                "mania-psychosis": "none",
                 "emotional-dysregulation-escalation": "none",
                 "persistence-of-distress": "none",
                 "social-withdrawal-lack-of-support": "none",
@@ -1020,7 +1025,7 @@ export default function InteractivePanel({ mode, onBack }: InteractivePanelProps
     }
   };
 
-  // PDF export function
+  // PDF/CSV export function (simplified and well-scoped)
   const exportAnalysisToPDF = async () => {
     if (!isConnected || messages.length === 0) {
       alert('Please connect to API and have at least one message to export analysis.');
@@ -1028,653 +1033,162 @@ export default function InteractivePanel({ mode, onBack }: InteractivePanelProps
     }
 
     setIsExportingPDF(true);
-    
+
     try {
-      // Use filtered messages based on cutoff
       const filteredMessages = getFilteredMessages();
-      
-      // Dynamic import to avoid SSR issues
-      const jsPDF = (await import('jspdf')).default;
-      
-      // Create PDF document
-      const doc = new jsPDF();
-      const pageWidth = doc.internal.pageSize.getWidth();
-      const pageHeight = doc.internal.pageSize.getHeight();
-      let currentY = 20;
-      const margin = 20;
-      const maxWidth = pageWidth - 2 * margin;
+      const wantPdf = exportMode === 'pdf' || exportMode === 'both';
+      const wantCsv = exportMode === 'csv' || exportMode === 'both';
+      const filenameBase = `ERM_Analysis_${new Date().toISOString().slice(0, 10)}_${Date.now()}`;
 
-      // Helper function to add text with word wrapping
-      const addTextWithWrapping = (text: string, fontSize: number, isBold: boolean = false) => {
-        doc.setFontSize(fontSize);
-        doc.setFont('helvetica', isBold ? 'bold' : 'normal');
-        
-        const lines = doc.splitTextToSize(text, maxWidth);
-        
-        // Check if we need a new page
-        if (currentY + (lines.length * fontSize * 0.5) > pageHeight - margin) {
-          doc.addPage();
-          currentY = margin;
-        }
-        
-        doc.text(lines, margin, currentY);
-        currentY += lines.length * fontSize * 0.5 + 5;
-      };
+      // PDF generation (kept intentionally simple to avoid deep nesting)
+      if (wantPdf) {
+        const jsPDF = (await import('jspdf')).default;
+        const doc = new jsPDF();
+        const pageWidth = doc.internal.pageSize.getWidth();
+        const margin = 14;
+        let y = 20;
 
-      // Header
-      addTextWithWrapping('Ethics Reasoning Module Interactive Mode Analysis', 18, true);
-      
-      // Subtitle with timestamp
-      const timestamp = new Date().toLocaleString();
-      addTextWithWrapping(`Generated on: ${timestamp}`, 12);
-      
-      // Add some space
-      currentY += 10;
-      
-      // Generate summary if not already available
-      let summaryText = summaryOutput;
-      if (!summaryText) {
+        doc.setFontSize(16);
+        doc.text('ERM Interactive Mode Analysis', margin, y);
+        y += 8;
+        doc.setFontSize(10);
+        doc.text(`Generated: ${new Date().toLocaleString()}`, margin, y);
+        y += 10;
 
-        // Generate summary using the existing function logic
-        const conversationHistory = messages.map(msg => ({
-          role: msg.type === 'user' ? 'user' : 'assistant',
-          content: msg.content,
-          timestamp: msg.timestamp.toISOString()
-        }));
+        doc.setFontSize(12);
+        doc.text('Conversation Snapshot:', margin, y);
+        y += 8;
 
-        const flaggedContent = flaggedMessages.map(flag => ({
-          type: flag.type,
-          severity: flag.severity,
-          reason: flag.reason,
-          flaggedText: flag.flaggedText
-        }));
-
-        const requestBody = {
-          conversationHistory,
-          flaggedContent,
-          context: summaryContext,
-          format: 'bullets',
-          apiKey,
-          baseUrl: baseUrl || undefined,
-          model: selectedModel || 'gpt-4o',
-        };
-
-        const response = await fetch('/api/summary', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(requestBody),
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          summaryText = data.summary;
-        } else {
-          summaryText = 'Failed to generate summary for PDF export.';
-        }
-      }
-      
-      // Add summary content
-      addTextWithWrapping('Analysis Summary:', 14, true);
-      
-      // Convert markdown to plain text for PDF
-      const plainTextSummary = summaryText
-        .replace(/\*\*(.*?)\*\*/g, '$1') // Remove bold markdown
-        .replace(/\*(.*?)\*/g, '$1') // Remove italic markdown
-        .replace(/^#+\s+/gm, '') // Remove headers
-        .replace(/^[-*+]\s+/gm, '• ') // Convert bullet points
-        .replace(/^\d+\.\s+/gm, '• ') // Convert numbered lists
-        .replace(/\n\n/g, '\n') // Reduce double line breaks
-        .trim();
-      
-      addTextWithWrapping(plainTextSummary, 10);
-      
-      // Add conversation statistics
-      currentY += 10;
-      addTextWithWrapping('Conversation Statistics:', 14, true);
-      addTextWithWrapping(`Total Messages: ${messages.length}`, 10);
-      addTextWithWrapping(`User Messages: ${messages.filter(m => m.type === 'user').length}`, 10);
-      addTextWithWrapping(`AI Messages: ${messages.filter(m => m.type === 'ai').length}`, 10);
-      addTextWithWrapping(`Flagged Messages: ${flaggedMessages.length}`, 10);
-      
-      if (summaryContext) {
-        currentY += 10;
-        addTextWithWrapping('Context Information:', 14, true);
-        addTextWithWrapping(summaryContext, 10);
-      }
-      
-      // Add messages table
-      currentY += 15;
-      addTextWithWrapping('Conversation Messages:', 14, true);
-      currentY += 10;
-      
-      // Create a simple table without autotable plugin
-      const createSimpleTable = () => {
-        const tableStartY = currentY;
-        const colWidths = [25, 80, 25, 40]; // Column widths
-        const rowHeight = 20;
-        let currentRowY = tableStartY;
-        
-        // Draw table headers
-        doc.setFontSize(8);
-        doc.setFont('helvetica', 'bold');
-        doc.setFillColor(66, 139, 202);
-        doc.rect(margin, currentRowY, colWidths.reduce((a, b) => a + b, 0), rowHeight, 'F');
-        
-        doc.setTextColor(255, 255, 255);
-        let currentX = margin + 2;
-        const headers = ['Message ID', 'Message Content', 'Source', 'Timestamp'];
-        headers.forEach((header, index) => {
-          doc.text(header, currentX, currentRowY + 10);
-          currentX += colWidths[index];
-        });
-        
-        currentRowY += rowHeight;
-        
-        // Draw table data
-        doc.setFont('helvetica', 'normal');
-        doc.setTextColor(0, 0, 0);
-        doc.setFontSize(7);
-        
-        filteredMessages.forEach((message, index) => {
-          // Check if we need a new page
-          if (currentRowY + rowHeight > pageHeight - margin) {
+        doc.setFontSize(9);
+        filteredMessages.forEach((m, idx) => {
+          const prefix = `${idx + 1}. [${m.type === 'user' ? 'Human' : 'AI'}] `;
+          const text = prefix + (m.content.length > 240 ? m.content.substring(0, 237) + '...' : m.content);
+          const lines = doc.splitTextToSize(text, pageWidth - margin * 2);
+          if (y + lines.length * 6 > doc.internal.pageSize.getHeight() - 20) {
             doc.addPage();
-            currentRowY = margin;
+            y = 20;
           }
-          
-          // Draw row background (alternating colors)
-          if (index % 2 === 0) {
-            doc.setFillColor(245, 245, 245);
-            doc.rect(margin, currentRowY, colWidths.reduce((a, b) => a + b, 0), rowHeight, 'F');
+          doc.text(lines, margin, y);
+          y += lines.length * 6 + 6;
+        });
+
+        // Robustly obtain a Blob for the PDF from jsPDF outputs (supports blob, arraybuffer, datauri)
+        const getPdfBlob = () => {
+          try {
+            if (doc && typeof doc.output === 'function') {
+              // Preferred: blob
+              try {
+                const maybeBlob = doc.output('blob');
+                if (maybeBlob instanceof Blob) return maybeBlob;
+              } catch (e) {
+                // ignore and try other outputs
+              }
+
+              // Try arraybuffer
+              try {
+                const arr = doc.output('arraybuffer');
+                if (arr) return new Blob([arr], { type: 'application/pdf' });
+              } catch (e) {
+                // ignore
+              }
+
+              // Try datauri (base64 string)
+              try {
+                const dataUri = doc.output('datauristring');
+                if (typeof dataUri === 'string' && dataUri.includes(',')) {
+                  const base64 = dataUri.split(',')[1];
+                  const bytes = atob(base64);
+                  const buf = new Uint8Array(bytes.length);
+                  for (let i = 0; i < bytes.length; i++) buf[i] = bytes.charCodeAt(i);
+                  return new Blob([buf], { type: 'application/pdf' });
+                }
+              } catch (e) {
+                // ignore
+              }
+            }
+          } catch (e) {
+            console.error('Error while converting jsPDF output to Blob:', e);
           }
-          
-          currentX = margin + 2;
-          const rowData = [
-            (index + 1).toString(),
-            message.content.length > 40 ? message.content.substring(0, 40) + '...' : message.content,
-            message.type === 'user' ? 'Human' : 'AI',
-            message.timestamp.toLocaleTimeString()
+
+          return null;
+        };
+
+        const pdfBlob = getPdfBlob();
+        if (pdfBlob) {
+          const pdfUrl = URL.createObjectURL(pdfBlob);
+          const pdfLink = document.createElement('a');
+          pdfLink.href = pdfUrl;
+          pdfLink.setAttribute('download', `${filenameBase}.pdf`);
+          document.body.appendChild(pdfLink);
+          pdfLink.click();
+          pdfLink.remove();
+          URL.revokeObjectURL(pdfUrl);
+          // give the browser a short moment to schedule the download
+          await new Promise(res => setTimeout(res, 250));
+        } else {
+          // Last-resort fallback using doc.save which may open a blocking dialog in some browsers
+          try {
+            doc.save(`${filenameBase}.pdf`);
+            await new Promise((res) => setTimeout(res, 600));
+          } catch (e) {
+            console.error('Failed to save PDF via doc.save fallback:', e);
+          }
+        }
+      }
+
+      // CSV generation
+      if (wantCsv) {
+        const csvEscape = (s: any) => {
+          if (s === null || s === undefined) return '""';
+          const str = typeof s === 'string' ? s : JSON.stringify(s);
+          return '"' + str.replace(/"/g, '""') + '"';
+        };
+
+        const csvHeaders = ['MessageIndex','MessageID','Timestamp','Role','Content','FlagTypes','FlagSeverities','FlagReasons','SeverityBreakdown','PrincipleScores','FlaggingAnalysis'];
+        const csvRows: string[] = [csvHeaders.join(',')];
+
+        filteredMessages.forEach((message, idx) => {
+          const messageIndex = idx + 1;
+          const flags = message.flags || [];
+          const flagTypes = flags.map(f => f.type).join('|');
+          const flagSeverities = flags.map(f => f.severity).join('|');
+          const flagReasons = flags.map(f => f.reason).join('|');
+          const severityBreakdown = message.severityBreakdown ? JSON.stringify(message.severityBreakdown) : '';
+          const principleScores = message.principleScoring?.scores ? JSON.stringify(message.principleScoring.scores.map(s => ({ principleId: s.principleId, score: s.score, reasoning: s.reasoning }))) : '';
+          const analysisText = message.flaggingAnalysis?.fullReasoning || message.flaggingAnalysis?.reasoning || '';
+
+          const row = [
+            csvEscape(messageIndex),
+            csvEscape(message.id),
+            csvEscape(message.timestamp?.toString() || ''),
+            csvEscape(message.type),
+            csvEscape(message.content),
+            csvEscape(flagTypes),
+            csvEscape(flagSeverities),
+            csvEscape(flagReasons),
+            csvEscape(severityBreakdown),
+            csvEscape(principleScores),
+            csvEscape(analysisText)
           ];
-          
-          rowData.forEach((data, colIndex) => {
-            // Wrap text if it's too long for the column
-            const lines = doc.splitTextToSize(data, colWidths[colIndex] - 4);
-            doc.text(lines[0], currentX, currentRowY + 10); // Only show first line to fit in row
-            currentX += colWidths[colIndex];
-          });
-          
-          // Draw row border
-          doc.setDrawColor(200, 200, 200);
-          doc.rect(margin, currentRowY, colWidths.reduce((a, b) => a + b, 0), rowHeight, 'S');
-          
-          currentRowY += rowHeight;
+
+          csvRows.push(row.join(','));
         });
-        
-        return currentRowY;
-      };
-      
-      currentY = createSimpleTable() + 10;
-      
-      // Add flags table if there are flagged messages
-      if (flaggedMessages.length > 0) {
-        currentY += 15;
-        addTextWithWrapping('Flagged Content Analysis:', 14, true);
-        currentY += 10;
-        
-        // Get all unique flagging categories from all messages
-        const allCategories = new Set<string>();
-        filteredMessages.forEach(msg => {
-          if (msg.severityBreakdown) {
-            Object.keys(msg.severityBreakdown).forEach(category => {
-              allCategories.add(category);
-            });
-          }
-        });
-        
-        const categoriesArray = Array.from(allCategories).sort();
-        
-        // Create flags table
-        const createFlagsTable = () => {
-          const tableStartY = currentY;
-          const baseColWidths = [25, 60]; // Message ID, Analysis
-          const categoryColWidth = categoriesArray.length > 0 ? Math.floor((pageWidth - margin * 2 - baseColWidths.reduce((a, b) => a + b, 0)) / categoriesArray.length) : 20;
-          const colWidths = [...baseColWidths, ...categoriesArray.map(() => categoryColWidth)];
-          const rowHeight = 25;
-          let currentRowY = tableStartY;
-          
-          // Helper function to get severity color for PDF
-          const getSeverityColorPDF = (severity: string): [number, number, number] => {
-            switch (severity) {
-              case 'high': return [220, 53, 69]; // Red
-              case 'medium': return [255, 193, 7]; // Yellow
-              case 'low': return [253, 126, 20]; // Orange
-              case 'none': return [40, 167, 69]; // Green
-              default: return [108, 117, 125]; // Gray
-            }
-          };
-          
-          // Draw table headers
-          doc.setFontSize(7);
-          doc.setFont('helvetica', 'bold');
-          doc.setFillColor(66, 139, 202);
-          doc.rect(margin, currentRowY, colWidths.reduce((a, b) => a + b, 0), rowHeight, 'F');
-          
-          doc.setTextColor(255, 255, 255);
-          let currentX = margin + 2;
-          const headers = ['Msg ID', 'Analysis', ...categoriesArray.map(cat => formatContentType(cat))];
-          headers.forEach((header, index) => {
-            // Split header text if too long
-            const lines = doc.splitTextToSize(header, colWidths[index] - 4);
-            doc.text(lines[0], currentX, currentRowY + 6);
-            if (lines.length > 1) {
-              doc.text(lines[1], currentX, currentRowY + 12);
-            }
-            currentX += colWidths[index];
-          });
-          
-          currentRowY += rowHeight;
-          
-          // Draw table data for messages with flags or analysis
-          doc.setFont('helvetica', 'normal');
-          doc.setTextColor(0, 0, 0);
-          doc.setFontSize(6);
-          
-          const relevantMessages = filteredMessages.filter(msg => 
-            msg.flaggingAnalysis || (msg.severityBreakdown && Object.keys(msg.severityBreakdown).length > 0)
-          );
-          
-          relevantMessages.forEach((message, index) => {
-            // Check if we need a new page
-            if (currentRowY + rowHeight > pageHeight - margin) {
-              doc.addPage();
-              currentRowY = margin;
-            }
-            
-            // Draw row background (alternating colors)
-            if (index % 2 === 0) {
-              doc.setFillColor(245, 245, 245);
-              doc.rect(margin, currentRowY, colWidths.reduce((a, b) => a + b, 0), rowHeight, 'F');
-            }
-            
-            currentX = margin + 2;
-            
-            // Message ID
-            const messageIndex = filteredMessages.findIndex(m => m.id === message.id) + 1;
-            doc.text(messageIndex.toString(), currentX, currentRowY + 10);
-            currentX += colWidths[0];
-            
-            // Analysis (truncated)
-            const analysis = message.flaggingAnalysis?.reasoning || 'No analysis';
-            const analysisLines = doc.splitTextToSize(analysis, colWidths[1] - 4);
-            doc.text(analysisLines[0], currentX, currentRowY + 6);
-            if (analysisLines.length > 1) {
-              doc.text(analysisLines[1], currentX, currentRowY + 12);
-            }
-            currentX += colWidths[1];
-            
-            // Category columns with color coding
-            categoriesArray.forEach((category, catIndex) => {
-              const severity = message.severityBreakdown?.[category] || 'none';
-              const [r, g, b] = getSeverityColorPDF(severity);
-              
-              // Draw colored background for severity
-              if (severity !== 'none') {
-                doc.setFillColor(r, g, b);
-                doc.rect(currentX, currentRowY + 2, colWidths[2 + catIndex] - 2, rowHeight - 4, 'F');
-              }
-              
-              // Set text color (white for dark backgrounds, black for light)
-              const isDark = (r * 0.299 + g * 0.587 + b * 0.114) < 128;
-              doc.setTextColor(isDark ? 255 : 0, isDark ? 255 : 0, isDark ? 255 : 0);
-              
-              // Draw severity text
-              doc.setFontSize(6);
-              const severityText = severity.charAt(0).toUpperCase() + severity.slice(1);
-              doc.text(severityText, currentX + 2, currentRowY + 10);
-              
-              // Reset text color
-              doc.setTextColor(0, 0, 0);
-              doc.setFontSize(6);
-              
-              currentX += colWidths[2 + catIndex];
-            });
-            
-            // Draw row border
-            doc.setDrawColor(200, 200, 200);
-            doc.rect(margin, currentRowY, colWidths.reduce((a, b) => a + b, 0), rowHeight, 'S');
-            
-            currentRowY += rowHeight;
-          });
-          
-          return currentRowY;
-        };
-        
-        currentY = createFlagsTable() + 10;
+
+        const csvContent = csvRows.join('\n');
+        const csvBlob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const csvUrl = URL.createObjectURL(csvBlob);
+        const link = document.createElement('a');
+        link.href = csvUrl;
+        link.setAttribute('download', `${filenameBase}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(csvUrl);
       }
-      
-      // Add principle scoring section if there are principle scores
-      const messagesWithPrincipleScoring = messages.filter(msg => msg.principleScoring?.scores);
-      if (messagesWithPrincipleScoring.length > 0) {
-        currentY += 15;
-        addTextWithWrapping('Principle Scoring Analysis:', 14, true);
-        currentY += 10;
-        
-        // Get all principles that have been scored
-        const principleMap = new Map<string, { name: string; scores: Array<{ messageId: string; messageIndex: number; score: number; reasoning: string; type: 'user' | 'ai' }> }>();
-        
-        messagesWithPrincipleScoring.forEach((message, messageIndex) => {
-          if (message.principleScoring?.scores) {
-            message.principleScoring.scores.forEach(score => {
-              if (!principleMap.has(score.principleId)) {
-                principleMap.set(score.principleId, { 
-                  name: score.principleId.charAt(0).toUpperCase() + score.principleId.slice(1), 
-                  scores: [] 
-                });
-              }
-              
-              const actualMessageIndex = filteredMessages.findIndex(m => m.id === message.id);
-              principleMap.get(score.principleId)!.scores.push({
-                messageId: message.id,
-                messageIndex: actualMessageIndex + 1,
-                score: score.score,
-                reasoning: score.reasoning || 'No reasoning provided',
-                type: message.type
-              });
-            });
-          }
-        });
-        
-        // Add principle scoring plots
-        addTextWithWrapping('Principle Score Trends:', 12, true);
-        currentY += 10;
-        
-        const createPrinciplePlots = () => {
-          let plotY = currentY;
-          const plotWidth = 160; // Increased width for better visibility
-          const plotHeight = 90; // Increased height for better visibility
-          const plotX = margin;
-          
-          Array.from(principleMap.entries()).forEach(([principleId, principleData], index) => {
-            // Check if we need a new page - give more space for the plot
-            if (plotY + plotHeight + 60 > pageHeight - margin) {
-              doc.addPage();
-              plotY = margin;
-            }
-            
-            // Draw plot title
-            doc.setFontSize(11);
-            doc.setFont('helvetica', 'bold');
-            doc.text(`${principleData.name} Principle Score Trend`, plotX, plotY);
-            plotY += 20;
-            
-            // Draw plot area
-            const plotStartY = plotY;
-            doc.setDrawColor(200, 200, 200);
-            doc.setLineWidth(0.5);
-            doc.rect(plotX, plotStartY, plotWidth, plotHeight, 'S');
-            
-            // Draw grid lines and labels
-            doc.setDrawColor(240, 240, 240);
-            doc.setLineWidth(0.2);
-            doc.setFontSize(7);
-            
-            // Y-axis labels and grid lines (scores from -5 to +5)
-            for (let score = -5; score <= 5; score += 2) {
-              const y = plotStartY + plotHeight - ((score + 5) / 10) * plotHeight;
-              if (score !== -5 && score !== 5) { // Don't draw grid on borders
-                doc.line(plotX, y, plotX + plotWidth, y);
-              }
-              doc.setTextColor(100, 100, 100);
-              doc.text(score.toString(), plotX - 10, y + 2);
-            }
-            
-            // Prepare data points for x-axis
-            const userScores = principleData.scores.filter(s => s.type === 'user').sort((a, b) => a.messageIndex - b.messageIndex);
-            const aiScores = principleData.scores.filter(s => s.type === 'ai').sort((a, b) => a.messageIndex - b.messageIndex);
-            const maxMessageIndex = Math.max(...principleData.scores.map(s => s.messageIndex));
-            const minMessageIndex = Math.min(...principleData.scores.map(s => s.messageIndex));
-            
-            // X-axis labels (message indices)
-            const messageRange = maxMessageIndex - minMessageIndex;
-            const xLabelStep = Math.max(1, Math.floor(messageRange / 5)); // Show max 5 labels
-            for (let msgIndex = minMessageIndex; msgIndex <= maxMessageIndex; msgIndex += xLabelStep) {
-              const x = messageRange > 0 ? plotX + ((msgIndex - minMessageIndex) / messageRange) * plotWidth : plotX + plotWidth / 2;
-              doc.setTextColor(100, 100, 100);
-              doc.text(msgIndex.toString(), x - 3, plotStartY + plotHeight + 10);
-              
-              // Draw vertical grid line
-              doc.setDrawColor(240, 240, 240);
-              doc.line(x, plotStartY, x, plotStartY + plotHeight);
-            }
-            
-            // Draw zero line more prominently
-            const zeroY = plotStartY + plotHeight - (5 / 10) * plotHeight;
-            doc.setDrawColor(150, 150, 150);
-            doc.setLineWidth(1);
-            doc.line(plotX, zeroY, plotX + plotWidth, zeroY);
-            doc.setLineWidth(0.1);
-            
-            // Draw data points and lines
-            if (userScores.length > 0) {
-              // User scores (blue)
-              doc.setDrawColor(59, 130, 246); // Blue
-              doc.setFillColor(59, 130, 246);
-              
-              // Draw user line if more than one point
-              if (userScores.length > 1) {
-                for (let i = 0; i < userScores.length - 1; i++) {
-                  const x1 = messageRange > 0 ? plotX + ((userScores[i].messageIndex - minMessageIndex) / messageRange) * plotWidth : plotX + plotWidth / 2;
-                  const y1 = plotStartY + plotHeight - ((userScores[i].score + 5) / 10) * plotHeight;
-                  const x2 = messageRange > 0 ? plotX + ((userScores[i + 1].messageIndex - minMessageIndex) / messageRange) * plotWidth : plotX + plotWidth / 2;
-                  const y2 = plotStartY + plotHeight - ((userScores[i + 1].score + 5) / 10) * plotHeight;
-                  doc.setLineWidth(1.5);
-                  doc.line(x1, y1, x2, y2);
-                }
-              }
-              
-              // Draw user points
-              userScores.forEach(score => {
-                const x = messageRange > 0 ? plotX + ((score.messageIndex - minMessageIndex) / messageRange) * plotWidth : plotX + plotWidth / 2;
-                const y = plotStartY + plotHeight - ((score.score + 5) / 10) * plotHeight;
-                doc.circle(x, y, 2, 'F');
-              });
-            }
-            
-            if (aiScores.length > 0) {
-              // AI scores (purple)
-              doc.setDrawColor(139, 92, 246); // Purple
-              doc.setFillColor(139, 92, 246);
-              
-              // Draw AI line if more than one point
-              if (aiScores.length > 1) {
-                for (let i = 0; i < aiScores.length - 1; i++) {
-                  const x1 = messageRange > 0 ? plotX + ((aiScores[i].messageIndex - minMessageIndex) / messageRange) * plotWidth : plotX + plotWidth / 2;
-                  const y1 = plotStartY + plotHeight - ((aiScores[i].score + 5) / 10) * plotHeight;
-                  const x2 = messageRange > 0 ? plotX + ((aiScores[i + 1].messageIndex - minMessageIndex) / messageRange) * plotWidth : plotX + plotWidth / 2;
-                  const y2 = plotStartY + plotHeight - ((aiScores[i + 1].score + 5) / 10) * plotHeight;
-                  doc.setLineWidth(1.5);
-                  doc.line(x1, y1, x2, y2);
-                }
-              }
-              
-              // Draw AI points
-              aiScores.forEach(score => {
-                const x = messageRange > 0 ? plotX + ((score.messageIndex - minMessageIndex) / messageRange) * plotWidth : plotX + plotWidth / 2;
-                const y = plotStartY + plotHeight - ((score.score + 5) / 10) * plotHeight;
-                doc.circle(x, y, 2, 'F');
-              });
-            }
-            
-            // Add averages text below the plot
-            const userAvg = userScores.length > 0 ? (userScores.reduce((sum, s) => sum + s.score, 0) / userScores.length).toFixed(1) : 'N/A';
-            const aiAvg = aiScores.length > 0 ? (aiScores.reduce((sum, s) => sum + s.score, 0) / aiScores.length).toFixed(1) : 'N/A';
-            
-            doc.setFontSize(9);
-            doc.setTextColor(0, 0, 0);
-            doc.text('Averages:', plotX, plotStartY + plotHeight + 15);
-            doc.setTextColor(59, 130, 246);
-            doc.text(`User: ${userAvg}`, plotX + 40, plotStartY + plotHeight + 15);
-            doc.setTextColor(139, 92, 246);
-            doc.text(`AI: ${aiAvg}`, plotX + 90, plotStartY + plotHeight + 15);
-            
-            // Reset colors
-            doc.setTextColor(0, 0, 0);
-            doc.setDrawColor(0, 0, 0);
-            doc.setLineWidth(0.1);
-            
-            // Move to next row with proper spacing
-            plotY += plotHeight + 40;
-          });
-          
-          return plotY;
-        };
-        
-        currentY = createPrinciplePlots();
-        
-        // Add legend
-        addTextWithWrapping('Legend:', 10, true);
-        doc.setFontSize(8);
-        doc.setFillColor(59, 130, 246);
-        doc.circle(margin + 5, currentY, 2, 'F');
-        doc.setTextColor(0, 0, 0);
-        doc.text('User Messages', margin + 15, currentY + 2);
-        
-        doc.setFillColor(139, 92, 246);
-        doc.circle(margin + 80, currentY, 2, 'F');
-        doc.text('AI Messages', margin + 90, currentY + 2);
-        currentY += 15;
-        
-        // Create principle scoring tables
-        const createPrincipleScoreTables = () => {
-          let tableY = currentY;
-          
-          Array.from(principleMap.entries()).forEach(([principleId, principleData]) => {
-            // Check if we need a new page
-            if (tableY + 100 > pageHeight - margin) {
-              doc.addPage();
-              tableY = margin;
-            }
-            
-            // Add principle title
-            doc.setFontSize(12);
-            doc.setFont('helvetica', 'bold');
-            doc.text(`${principleData.name} Principle`, margin, tableY);
-            tableY += 20;
-            
-            // Calculate average scores
-            const userScores = principleData.scores.filter(s => s.type === 'user');
-            const aiScores = principleData.scores.filter(s => s.type === 'ai');
-            const avgUser = userScores.length > 0 ? (userScores.reduce((sum, s) => sum + s.score, 0) / userScores.length).toFixed(1) : 'N/A';
-            const avgAI = aiScores.length > 0 ? (aiScores.reduce((sum, s) => sum + s.score, 0) / aiScores.length).toFixed(1) : 'N/A';
-            
-            // Add averages
-            doc.setFontSize(9);
-            doc.setFont('helvetica', 'normal');
-            doc.text(`Average User Score: ${avgUser} | Average AI Score: ${avgAI}`, margin, tableY);
-            tableY += 15;
-            
-            // Create table for this principle
-            const colWidths = [30, 20, 20, 100]; // Message ID, Score, Source, Reasoning
-            const rowHeight = 20;
-            let currentRowY = tableY;
-            
-            // Draw table headers
-            doc.setFontSize(8);
-            doc.setFont('helvetica', 'bold');
-            doc.setFillColor(66, 139, 202);
-            doc.rect(margin, currentRowY, colWidths.reduce((a, b) => a + b, 0), rowHeight, 'F');
-            
-            doc.setTextColor(255, 255, 255);
-            let currentX = margin + 2;
-            const headers = ['Message ID', 'Score', 'Source', 'Reasoning'];
-            headers.forEach((header, index) => {
-              doc.text(header, currentX, currentRowY + 10);
-              currentX += colWidths[index];
-            });
-            
-            currentRowY += rowHeight;
-            
-            // Draw table data
-            doc.setFont('helvetica', 'normal');
-            doc.setTextColor(0, 0, 0);
-            doc.setFontSize(7);
-            
-            principleData.scores.sort((a, b) => a.messageIndex - b.messageIndex).forEach((scoreData, index) => {
-              // Check if we need a new page
-              if (currentRowY + rowHeight > pageHeight - margin) {
-                doc.addPage();
-                currentRowY = margin;
-              }
-              
-              // Draw row background (alternating colors)
-              if (index % 2 === 0) {
-                doc.setFillColor(245, 245, 245);
-                doc.rect(margin, currentRowY, colWidths.reduce((a, b) => a + b, 0), rowHeight, 'F');
-              }
-              
-              currentX = margin + 2;
-              
-              // Message ID
-              doc.text(scoreData.messageIndex.toString(), currentX, currentRowY + 10);
-              currentX += colWidths[0];
-              
-              // Score (with color coding)
-              const scoreColor = scoreData.score >= 3 ? [0, 128, 0] : scoreData.score >= 0 ? [255, 165, 0] : [255, 0, 0];
-              doc.setTextColor(scoreColor[0], scoreColor[1], scoreColor[2]);
-              doc.text(scoreData.score.toString(), currentX, currentRowY + 10);
-              doc.setTextColor(0, 0, 0);
-              currentX += colWidths[1];
-              
-              // Source
-              doc.text(scoreData.type === 'user' ? 'Human' : 'AI', currentX, currentRowY + 10);
-              currentX += colWidths[2];
-              
-              // Reasoning (truncated to fit)
-              const reasoningLines = doc.splitTextToSize(scoreData.reasoning, colWidths[3] - 4);
-              doc.text(reasoningLines[0], currentX, currentRowY + 6);
-              if (reasoningLines.length > 1) {
-                doc.text(reasoningLines[1], currentX, currentRowY + 12);
-              }
-              
-              // Draw row border
-              doc.setDrawColor(200, 200, 200);
-              doc.rect(margin, currentRowY, colWidths.reduce((a, b) => a + b, 0), rowHeight, 'S');
-              
-              currentRowY += rowHeight;
-            });
-            
-            tableY = currentRowY + 20; // Space between principle tables
-          });
-          
-          return tableY;
-        };
-        
-        currentY = createPrincipleScoreTables();
-        
-        // Add principle scoring visualization as text summary
-        currentY += 10;
-        addTextWithWrapping('Principle Scoring Summary:', 12, true);
-        
-        Array.from(principleMap.entries()).forEach(([principleId, principleData]) => {
-          const userScores = principleData.scores.filter(s => s.type === 'user');
-          const aiScores = principleData.scores.filter(s => s.type === 'ai');
-          const avgUser = userScores.length > 0 ? (userScores.reduce((sum, s) => sum + s.score, 0) / userScores.length).toFixed(1) : 'N/A';
-          const avgAI = aiScores.length > 0 ? (aiScores.reduce((sum, s) => sum + s.score, 0) / aiScores.length).toFixed(1) : 'N/A';
-          
-          const summaryText = `${principleData.name}: User Average: ${avgUser}, AI Average: ${avgAI} (Total scores: ${principleData.scores.length})`;
-          addTextWithWrapping(summaryText, 9);
-        });
-      }
-      
-      // Save the PDF
-      const filename = `ERM_Analysis_${new Date().toISOString().slice(0, 10)}_${Date.now()}.pdf`;
-      doc.save(filename);
-      
+
     } catch (error) {
-      console.error('Error exporting PDF:', error);
-      alert('Failed to export PDF. Please try again.');
+      console.error('Error exporting analysis:', error);
+      alert('Failed to export analysis. Please try again.');
     } finally {
       setIsExportingPDF(false);
     }
@@ -2251,15 +1765,31 @@ export default function InteractivePanel({ mode, onBack }: InteractivePanelProps
                       <FileText className="w-4 h-4" />
                       <span>{isSummarizing ? 'Generating...' : 'Generate Summary'}</span>
                     </Button>
-                    <Button
-                      onClick={exportAnalysisToPDF}
-                      disabled={!isConnected || messages.length === 0 || isExportingPDF}
-                      className="flex items-center space-x-2"
-                      variant="outline"
-                    >
-                      <Download className="w-4 h-4" />
-                      <span>{isExportingPDF ? 'Exporting...' : 'Export PDF'}</span>
-                    </Button>
+                    <div className="flex items-center space-x-3">
+                      <div className="flex items-center space-x-2 text-xs text-gray-600">
+                        <label className="flex items-center">
+                          <input type="radio" name="exportMode" checked={exportMode === 'pdf'} onChange={() => setExportMode('pdf')} className="mr-1" />
+                          PDF
+                        </label>
+                        <label className="flex items-center">
+                          <input type="radio" name="exportMode" checked={exportMode === 'csv'} onChange={() => setExportMode('csv')} className="mr-1" />
+                          CSV
+                        </label>
+                        <label className="flex items-center">
+                          <input type="radio" name="exportMode" checked={exportMode === 'both'} onChange={() => setExportMode('both')} className="mr-1" />
+                          Both
+                        </label>
+                      </div>
+                      <Button
+                        onClick={exportAnalysisToPDF}
+                        disabled={!isConnected || messages.length === 0 || isExportingPDF}
+                        className="flex items-center space-x-2"
+                        variant="outline"
+                      >
+                        <Download className="w-4 h-4" />
+                        <span>{isExportingPDF ? 'Exporting...' : exportMode === 'csv' ? 'Export CSV' : exportMode === 'pdf' ? 'Export PDF' : 'Export Both'}</span>
+                      </Button>
+                    </div>
                   </div>
                 </CardTitle>
                 <CardDescription>

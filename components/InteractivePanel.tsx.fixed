@@ -275,7 +275,7 @@ export default function InteractivePanel({ mode, onBack }: InteractivePanelProps
     }, {} as Record<string, number>);
 
     // Define all flag types for consistent ordering
-  const allTypes = ['emotional-distress','emotional-dysregulation-escalation','persistence-of-distress','social-withdrawal-lack-of-support','over-reliance-ai','reduced-coping-capacity','hopelessness-reduced-future-orientation','human-intervention-recommended','other'];
+  const allTypes = ['emotional-distress','emotional-dysregulation-escalation','persistence-of-distress','social-withdrawal-lack-of-support','over-reliance-ai','reduced-coping-capacity','hopelessness-reduced-future-orientation','human-intervention-recommended','suicidal-ideation','mania-psychosis','other'];
     const maxCount = Math.max(...Object.values(flagCounts), 1);
 
     return allTypes.map(type => ({
@@ -297,7 +297,7 @@ export default function InteractivePanel({ mode, onBack }: InteractivePanelProps
   };
 
   const renderSeverityBreakdown = (severityBreakdown: Record<string, string>) => {
-  const contentTypes = ['emotional-distress','emotional-dysregulation-escalation','persistence-of-distress','social-withdrawal-lack-of-support','over-reliance-ai','reduced-coping-capacity','hopelessness-reduced-future-orientation','human-intervention-recommended','other'];
+  const contentTypes = ['emotional-distress','emotional-dysregulation-escalation','persistence-of-distress','social-withdrawal-lack-of-support','over-reliance-ai','reduced-coping-capacity','hopelessness-reduced-future-orientation','human-intervention-recommended','suicidal-ideation','mania-psychosis','other'];
     
     return (
       <div className="mt-3 border-t border-gray-200 pt-3">

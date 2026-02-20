@@ -30,7 +30,7 @@ export interface ModelInfo {
 export interface FlaggedContent {
   id: string;
   messageId: string;
-  type: 'emotional-distress' | 'emotional-dysregulation-escalation' | 'persistence-of-distress' | 'social-withdrawal-lack-of-support' | 'over-reliance-ai' | 'reduced-coping-capacity' | 'hopelessness-reduced-future-orientation' | 'human-intervention-recommended' | 'none' | 'other';
+  type: 'emotional-distress' | 'emotional-dysregulation-escalation' | 'persistence-of-distress' | 'social-withdrawal-lack-of-support' | 'over-reliance-ai' | 'reduced-coping-capacity' | 'hopelessness-reduced-future-orientation' | 'human-intervention-recommended' | 'suicidal-ideation' | 'mania-psychosis' | 'none' | 'other';
   severity: 'low' | 'medium' | 'high';
   reason: string;
   flaggedText: string;

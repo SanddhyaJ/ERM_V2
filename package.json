@@ -18,7 +18,11 @@
     "html2canvas": "^1.4.1",
     "jspdf": "^3.0.1",
     "lucide-react": "^0.525.0",
+<<<<<<< HEAD
     "next": "15.3.8",
+=======
+    "next": "15.3.5",
+>>>>>>> 12a62bd (adding csv export)
     "openai": "^5.8.2",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

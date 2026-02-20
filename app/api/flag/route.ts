@@ -148,7 +148,7 @@ If you identify concerning content, include it in the flags array with appropria
             properties: {
               type: {
                 type: "string",
-                enum: ["emotional-distress","emotional-dysregulation-escalation","persistence-of-distress","social-withdrawal-lack-of-support","over-reliance-ai","reduced-coping-capacity","hopelessness-reduced-future-orientation","human-intervention-recommended","none","other"],
+                enum: ["emotional-distress","emotional-dysregulation-escalation","persistence-of-distress","social-withdrawal-lack-of-support","over-reliance-ai","reduced-coping-capacity","hopelessness-reduced-future-orientation","human-intervention-recommended","suicidal-ideation","mania-psychosis","none","other"],
                 description: "Type of flagged content"
               },
               severity: {
@@ -222,8 +222,10 @@ You must respond with a valid JSON object that matches this exact structure:
   "shouldFlag": boolean,
   "reasoning": "string explaining your analysis",
   "severityBreakdown": {
-    "emotional-distress": "none|low|medium|high",
-    "emotional-dysregulation-escalation": "none|low|medium|high",
+  "emotional-distress": "none|low|medium|high",
+  "suicidal-ideation": "none|low|medium|high",
+  "mania-psychosis": "none|low|medium|high",
+  "emotional-dysregulation-escalation": "none|low|medium|high",
     "persistence-of-distress": "none|low|medium|high",
     "social-withdrawal-lack-of-support": "none|low|medium|high",
     "over-reliance-ai": "none|low|medium|high",
@@ -291,6 +293,8 @@ Do not include any markdown formatting, code blocks, or additional text. Only re
       if (!flaggingResult.severityBreakdown) {
         flaggingResult.severityBreakdown = {
           "emotional-distress": "none",
+          "suicidal-ideation": "none",
+          "mania-psychosis": "none",
           "emotional-dysregulation-escalation": "none",
           "persistence-of-distress": "none",
           "social-withdrawal-lack-of-support": "none",
@@ -346,6 +350,8 @@ Do not include any markdown formatting, code blocks, or additional text. Only re
         if (!flaggingResult.severityBreakdown) {
           flaggingResult.severityBreakdown = {
             "emotional-distress": "none",
+            "suicidal-ideation": "none",
+            "mania-psychosis": "none",
             "emotional-dysregulation-escalation": "none",
             "persistence-of-distress": "none",
             "social-withdrawal-lack-of-support": "none",
@@ -389,6 +395,8 @@ Do not include any markdown formatting, code blocks, or additional text. Only re
             "Analysis completed successfully. No concerning content detected.",
           severityBreakdown: {
             "emotional-distress": hasFlag ? "medium" : "none",
+            "suicidal-ideation": "none",
+            "mania-psychosis": "none",
             "emotional-dysregulation-escalation": "none",
             "persistence-of-distress": "none",
             "social-withdrawal-lack-of-support": "none",
