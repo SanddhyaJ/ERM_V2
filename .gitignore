@@ -39,3 +39,5 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+.git_backup_before_renaming_main/
+.git_backup_main2_issue/
